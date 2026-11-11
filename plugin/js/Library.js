@@ -1256,6 +1256,9 @@ class Library { // eslint-disable-line no-unused-vars
     }
 
     static async LibGetFromStorage(Key) {
+        if (typeof Key === "string" && Key.startsWith("LibEpub")) {
+            return Library.epubStorage.get(Key.slice("LibEpub".length));
+        }
         return new Promise((resolve) => {
             chrome.storage.local.get(Key, function(item) {
                 resolve(item[Key]);
@@ -1300,3 +1303,5 @@ class Library { // eslint-disable-line no-unused-vars
         return chaptersource;
     }
 }
+
+Library.epubStorage = new BrowserEpubStorage();
