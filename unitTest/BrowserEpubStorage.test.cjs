@@ -52,3 +52,45 @@ test("routes EPUB reads through the configured adapter", async () => {
     assert.equal(await vm.runInContext('Library.LibGetFromStorage("LibEpub42")', context), "adapter:42");
     assert.deepEqual(calls, []);
 });
+
+test("downloads the selected adapter's EPUB and retains download preferences", async () => {
+    let {context} = createLibraryContext({LibFilename7: "Title"});
+    let removed = [];
+    let count = {innerHTML: "2"};
+    let downloaded;
+    context.chrome.storage.local.remove = keys => removed.push(...keys);
+    context.document = {getElementById: () => count};
+    context.UserPreferences = {readFromLocalStorage: () => ({
+        overwriteExistingEpub: {value: true}, noDownloadPopup: {value: false}
+    })};
+    context.Download = {save: async (...args) => { downloaded = args; return "saved"; }};
+    vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}; Library.LibConvertDataUrlToBlob = async value => "blob:" + value', context);
+    assert.equal(await vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), "saved");
+    assert.deepEqual(downloaded, ["blob:adapter:7", "Title.epub", true, false]);
+    assert.deepEqual(removed, ["LibNewChapterCount7"]);
+    assert.equal(count.innerHTML, "");
+});
+
+test("download failures leave new-chapter state unchanged", async () => {
+    let {context} = createLibraryContext({LibFilename7: "Title"});
+    let removed = [];
+    let count = {innerHTML: "2"};
+    context.chrome.storage.local.remove = keys => removed.push(...keys);
+    context.document = {getElementById: () => count};
+    context.UserPreferences = {readFromLocalStorage: () => ({
+        overwriteExistingEpub: {value: false}, noDownloadPopup: {value: false}
+    })};
+    context.Download = {save: async () => { throw new Error("Download failed"); }};
+    vm.runInContext('Library.epubStorage = {get: async () => "data"}; Library.LibConvertDataUrlToBlob = async value => value', context);
+    await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /Download failed/);
+    assert.deepEqual(removed, []);
+    assert.equal(count.innerHTML, "2");
+});
+
+test("download reports missing EPUB and storage errors without clearing state", async () => {
+    let {context} = createLibraryContext();
+    vm.runInContext('Library.epubStorage = {get: async () => undefined}', context);
+    await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /EPUB not found/);
+    vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Storage unavailable"); }}', context);
+    await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /Storage unavailable/);
+});
