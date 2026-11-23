@@ -945,7 +945,7 @@ test("downloads the selected adapter's EPUB and retains download preferences", a
     let removed = [];
     let count = {innerHTML: "2"};
     let downloaded;
-    context.chrome.storage.local.remove = keys => removed.push(...keys);
+    context.chrome.storage.local.remove = (keys, callback) => { removed.push(...keys); callback(); };
     context.document = {getElementById: () => count};
     context.UserPreferences = {readFromLocalStorage: () => ({
         overwriteExistingEpub: {value: true}, noDownloadPopup: {value: false}
@@ -956,6 +956,46 @@ test("downloads the selected adapter's EPUB and retains download preferences", a
     assert.deepEqual(downloaded, ["blob:adapter:7", "Title.epub", true, false]);
     assert.deepEqual(removed, ["LibNewChapterCount7"]);
     assert.equal(count.innerHTML, "");
+});
+
+test("library download waits for the chapter marker to be cleared", async () => {
+    let {context} = createLibraryContext({LibFilename7: "Title"});
+    let count = {innerHTML: "2"};
+    let finish;
+    context.chrome.storage.local.remove = (keys, callback) => { finish = callback; };
+    context.document = {getElementById: () => count};
+    context.UserPreferences = {readFromLocalStorage: () => ({
+        overwriteExistingEpub: {value: false}, noDownloadPopup: {value: false}
+    })};
+    context.Download = {save: async () => "saved"};
+    vm.runInContext('Library.epubStorage = {get: async () => "data"}; Library.LibConvertDataUrlToBlob = async value => value', context);
+    let completed = false;
+    let operation = vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context);
+    operation.then(() => { completed = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(completed, false);
+    assert.equal(count.innerHTML, "2");
+    finish();
+    assert.equal(await operation, "saved");
+    assert.equal(count.innerHTML, "");
+});
+
+test("library download reports marker removal failure and keeps the displayed count", async () => {
+    let {context, runtime} = createLibraryContext({LibFilename7: "Title"});
+    let count = {innerHTML: "2"};
+    context.chrome.storage.local.remove = (keys, callback) => {
+        runtime.lastError = {message: "Storage unavailable"};
+        callback();
+        runtime.lastError = null;
+    };
+    context.document = {getElementById: () => count};
+    context.UserPreferences = {readFromLocalStorage: () => ({
+        overwriteExistingEpub: {value: false}, noDownloadPopup: {value: false}
+    })};
+    context.Download = {save: async () => "saved"};
+    vm.runInContext('Library.epubStorage = {get: async () => "data"}; Library.LibConvertDataUrlToBlob = async value => value', context);
+    await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /download request returned.*marker could not be cleared.*Storage unavailable/);
+    assert.equal(count.innerHTML, "2");
 });
 
 test("download failures leave new-chapter state unchanged", async () => {

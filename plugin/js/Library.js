@@ -1042,7 +1042,11 @@ class Library { // eslint-disable-line no-unused-vars
         let blobdata = await Library.LibConvertDataUrlToBlob(epub);
         let result = await Download.save(blobdata, (filename + ".epub").trim(),
             userPreferences.overwriteExistingEpub.value, userPreferences.noDownloadPopup.value);
-        chrome.storage.local.remove(["LibNewChapterCount" + id]);
+        try {
+            await Library.LibRemoveFromStorage(["LibNewChapterCount" + id]);
+        } catch (error) {
+            throw new Error("The download request returned, but the chapter marker could not be cleared: " + error.message);
+        }
         document.getElementById("LibNewChapterCount"+id).innerHTML = "";
         return result;
     }
@@ -1339,6 +1343,18 @@ class Library { // eslint-disable-line no-unused-vars
     static async LibSetInStorage(items) {
         return new Promise((resolve, reject) => {
             chrome.storage.local.set(items, () => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve();
+            });
+        });
+    }
+
+    static async LibRemoveFromStorage(keys) {
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.remove(keys, () => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
                     return;
