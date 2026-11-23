@@ -736,6 +736,74 @@ test("merged download reports chapter marker failure after downloading", async (
     await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /download request returned.*Storage unavailable/);
 });
 
+function setupFirefoxDownload(context, platform, download) {
+    context.util = {isFirefox: () => true};
+    context.browser = {
+        runtime: {getPlatformInfo: async () => ({os: platform})},
+        downloads: {onChanged: {addListener() {}}, download}
+    };
+    let source = fs.readFileSync(path.join(__dirname, "..", "plugin", "js", "Download.js"), "utf8");
+    vm.runInContext(source, context, {filename: "Download.js"});
+}
+
+test("Firefox download errors clean up and reject", async () => {
+    let {context} = createLibraryContext();
+    let cleaned = 0;
+    context.cleanupDownload = () => { cleaned++; };
+    setupFirefoxDownload(context, "linux", async () => { throw new Error("Firefox download failed"); });
+    await assert.rejects(vm.runInContext('Download.saveOnFirefox({}, cleanupDownload)', context), /Firefox download failed/);
+    assert.equal(cleaned, 1);
+});
+
+test("Firefox platform detection errors clean up and reject", async () => {
+    let {context} = createLibraryContext();
+    let cleaned = 0;
+    context.cleanupDownload = () => { cleaned++; };
+    setupFirefoxDownload(context, "linux", async () => 17);
+    context.browser.runtime.getPlatformInfo = async () => { throw new Error("Platform unavailable"); };
+    await assert.rejects(vm.runInContext('Download.saveOnFirefox({}, cleanupDownload)', context), /Platform unavailable/);
+    assert.equal(cleaned, 1);
+});
+
+test("Firefox successful download defers cleanup until completion event", async () => {
+    let {context} = createLibraryContext();
+    let cleaned = 0;
+    context.cleanupDownload = () => { cleaned++; };
+    setupFirefoxDownload(context, "linux", async () => 17);
+    await vm.runInContext('Download.saveOnFirefox({}, cleanupDownload)', context);
+    assert.equal(cleaned, 0);
+    vm.runInContext('Download.onChanged({id: 17, state: {current: "complete"}})', context);
+    assert.equal(cleaned, 1);
+});
+
+test("Firefox Android link failures remove the link, clean up, and reject", async () => {
+    let {context} = createLibraryContext();
+    let cleaned = 0;
+    let removed = 0;
+    context.cleanupDownload = () => { cleaned++; };
+    context.document = {
+        createElement: () => ({style: {}, click() { throw new Error("Click failed"); }}),
+        body: {appendChild() {}, removeChild() { removed++; }}
+    };
+    setupFirefoxDownload(context, "android", async () => { throw new Error("Unexpected API call"); });
+    await assert.rejects(vm.runInContext('Download.saveOnFirefox({url: "blob", filename: "book.epub"}, cleanupDownload)', context), /Click failed/);
+    assert.equal(cleaned, 1);
+    assert.equal(removed, 1);
+});
+
+test("Firefox Android dispatches the link before resolving and cleans it up", async () => {
+    let {context} = createLibraryContext();
+    let events = [];
+    context.cleanupDownload = () => { events.push("cleanup"); };
+    context.document = {
+        createElement: () => ({style: {}, click() { events.push("click"); }}),
+        body: {appendChild() { events.push("append"); }, removeChild() { events.push("remove"); }}
+    };
+    setupFirefoxDownload(context, "android", async () => { throw new Error("Unexpected API call"); });
+    await vm.runInContext('Download.saveOnFirefox({url: "blob", filename: "book.epub"}, cleanupDownload)', context);
+    assert.deepEqual(events, ["append", "click", "remove", "cleanup"]);
+});
+
 function setupExport(context) {
     let entries = [];
     let downloads = [];

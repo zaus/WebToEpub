@@ -132,7 +132,10 @@ class Download {
                     downloadId => Download.onDownloadStarted(downloadId, cleanup)
                 );
             }
-        }).catch(cleanup);
+        }).catch(error => {
+            cleanup();
+            throw error;
+        });
     }
 
     static saveOnFirefoxForAndroid(options, cleanup) {
