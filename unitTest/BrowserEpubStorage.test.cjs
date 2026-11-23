@@ -12,7 +12,13 @@ function createLibraryContext(values = {}) {
     let storage = {
         get(key, callback) {
             calls.push(key);
-            callback({[key]: values[key]});
+            if (key == null) {
+                callback({...values});
+            } else if (Array.isArray(key)) {
+                callback(Object.fromEntries(key.map(name => [name, values[name]])));
+            } else {
+                callback({[key]: values[key]});
+            }
         }
     };
     let context = vm.createContext({
@@ -237,6 +243,75 @@ test("library import sends EPUB and metadata to the selected adapter", async () 
     assert.equal(write[2].LibStoryURL4, "url");
     assert.equal(write[2].LibNewChapterCount4, "2");
     assert.deepEqual(Array.from(write[2].LibArray), [3, 4]);
+});
+
+test("legacy library IDs are discovered without rewriting metadata before the book write", async () => {
+    let values = {LibEpub7: "old", LibStoryURL7: "url"};
+    let {context} = createLibraryContext(values);
+    let write;
+    context.writeAdapter = async (...args) => { write = args; };
+    context.chrome.storage.local.set = () => { throw new Error("Unexpected browser write"); };
+    vm.runInContext('Library.epubStorage = {set: (...args) => writeAdapter(...args)}', context);
+    await vm.runInContext('Library.LibImportBook({epub:"new", storyURL:"new-url", filename:"title", cover:"cover"})', context);
+    assert.equal(write[0], 8);
+    assert.deepEqual(Array.from(write[2].LibArray), ["7", 8]);
+});
+
+for (let failedKey of ["LibArray", null, "LibNewChapterCount7"]) {
+    test(`update stops on metadata read failure for ${String(failedKey)}`, async () => {
+        let values = failedKey === null ? {} : {LibArray: [7], LibNewChapterCount7: 1};
+        let {context, runtime} = createLibraryContext(values);
+        let writes = 0;
+        context.FileReader = class {
+            readAsDataURL(blob) { this.result = blob; this.onload(); }
+        };
+        context.chrome.storage.local.get = (key, callback) => {
+            if (key === failedKey) {
+                runtime.lastError = {message: "Metadata unavailable"};
+                callback(undefined);
+                runtime.lastError = null;
+            } else {
+                callback(key == null ? {...values} : {[key]: values[key]});
+            }
+        };
+        context.writeAdapter = async () => { writes++; };
+        vm.runInContext('Library.LibShowLoadingText = () => {}; Library.epubStorage = {set: (...args) => writeAdapter(...args)}', context);
+        await assert.rejects(vm.runInContext('Library.LibHandleUpdate(-1, "new", "url", "title", 7, 2)', context), /Metadata unavailable/);
+        assert.equal(writes, 0);
+    });
+}
+
+test("acquisition stops when URL metadata cannot be read", async () => {
+    let values = {LibArray: [7]};
+    let {context, runtime} = createLibraryContext(values);
+    let writes = 0;
+    context.chrome.storage.local.get = (key, callback) => {
+        if (Array.isArray(key)) {
+            runtime.lastError = {message: "URL metadata unavailable"};
+            callback(undefined);
+            runtime.lastError = null;
+        } else {
+            callback({[key]: values[key]});
+        }
+    };
+    context.writeAdapter = async () => { writes++; };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.epubStorage = {set: (...args) => writeAdapter(...args)}', context);
+    await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /URL metadata unavailable/);
+    assert.equal(writes, 0);
+});
+
+test("import stops when library IDs cannot be read", async () => {
+    let {context, runtime} = createLibraryContext();
+    let writes = 0;
+    context.chrome.storage.local.get = (key, callback) => {
+        runtime.lastError = {message: "Library IDs unavailable"};
+        callback(undefined);
+        runtime.lastError = null;
+    };
+    context.writeAdapter = async () => { writes++; };
+    vm.runInContext('Library.epubStorage = {set: (...args) => writeAdapter(...args)}', context);
+    await assert.rejects(vm.runInContext('Library.LibImportBook({epub:"new", storyURL:"url", filename:"title", cover:"cover"})', context), /Library IDs unavailable/);
+    assert.equal(writes, 0);
 });
 
 test("library update waits for the browser storage callback", async () => {
@@ -593,15 +668,13 @@ test("manual merge stops before processing when stored EPUB is missing", async (
 });
 
 test("acquisition merge does not update reading state when stored EPUB is missing", async () => {
-    let {context} = createLibraryContext();
+    let {context} = createLibraryContext({LibArray: [7], LibStoryURL7: "url"});
     let added = 0;
     context.added = () => { added++; };
     context.document = {getElementById: () => ({value: "url", checked: false})};
     vm.runInContext(`
         Library.userPreferences = {readingList: {addEpub: () => added()}};
         Library.LibShowLoadingText = () => {};
-        Library.LibGetStorageIDs = async () => [7];
-        Library.LibGetFromStorageArray = async () => ({LibStoryURL7: "url"});
         Library.epubStorage = {get: async () => undefined};
     `, context);
     await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /EPUB not found.*7/);

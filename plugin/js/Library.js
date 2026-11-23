@@ -13,9 +13,9 @@ class Library { // eslint-disable-line no-unused-vars
     
     async LibAddToLibrary(AddEpub, fileName, startingUrlInput, overwriteExisting, backgroundDownload) {
         Library.LibShowLoadingText();
-        let CurrentLibStoryIds = await Library.LibGetStorageIDs();
+        let CurrentLibStoryIds = await Library.LibGetStorageIDsForWrite();
         let CurrentLibStoryURLKeys = CurrentLibStoryIds.map(a => "LibStoryURL" + a);
-        let CurrentLibStoryURLs = await Library.LibGetFromStorageArray(CurrentLibStoryURLKeys);
+        let CurrentLibStoryURLs = await Library.LibReadStorageForWrite(CurrentLibStoryURLKeys);
         let LibidURL = -1;
         for (let i = 0; i < CurrentLibStoryURLKeys.length; i++) {
             if (CurrentLibStoryURLs[CurrentLibStoryURLKeys[i]] == startingUrlInput) {
@@ -860,7 +860,7 @@ class Library { // eslint-disable-line no-unused-vars
 
     static async LibImportBook(book) {
         return Library.LibQueueWrite(async () => {
-            let ids = await Library.LibGetStorageIDs();
+            let ids = await Library.LibGetStorageIDsForWrite();
             let id = ids.reduce((highest, current) => Math.max(highest, parseInt(current) + 1), 0);
             await Library.epubStorage.set(id, book.epub, {
                 ["LibStoryURL" + id]: book.storyURL,
@@ -874,7 +874,7 @@ class Library { // eslint-disable-line no-unused-vars
 
     static async LibFileReaderload(result, StoryURL, Filename, Id, NewChapterCount) {
         let manualUpload = false;
-        let CurrentLibStoryIds = await Library.LibGetStorageIDs();
+        let CurrentLibStoryIds = await Library.LibGetStorageIDsForWrite();
         if (-1 == Id) {
             let HighestLibEpub = 0;
             CurrentLibStoryIds.forEach(element => {
@@ -888,7 +888,8 @@ class Library { // eslint-disable-line no-unused-vars
                 manualUpload = true;
             }
         }
-        let StorageNewChapterCount = await Library.LibGetFromStorage("LibNewChapterCount" + Id);
+        let countKey = "LibNewChapterCount" + Id;
+        let StorageNewChapterCount = (await Library.LibReadStorageForWrite(countKey))[countKey];
         let IntStorageNewChapterCount = parseInt(StorageNewChapterCount || "0");
         let totalNewChapterCount = 0;
         if (IntStorageNewChapterCount != -1) {
@@ -1291,6 +1292,27 @@ class Library { // eslint-disable-line no-unused-vars
                 resolve(items);
             });
         });
+    }
+
+    static async LibReadStorageForWrite(keys) {
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.get(keys, items => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve(items);
+            });
+        });
+    }
+
+    static async LibGetStorageIDsForWrite() {
+        let items = await Library.LibReadStorageForWrite("LibArray");
+        if (items.LibArray != null) {
+            return items.LibArray;
+        }
+        let stored = await Library.LibReadStorageForWrite(null);
+        return Object.keys(stored).filter(key => key.includes("LibEpub")).map(key => key.replace("LibEpub", ""));
     }
 
     static async LibSetInStorage(items) {
