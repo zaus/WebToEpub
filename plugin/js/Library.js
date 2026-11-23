@@ -33,7 +33,7 @@ class Library { // eslint-disable-line no-unused-vars
             }
         }
 
-        let PreviousEpubBase64 = await Library.LibGetFromStorage("LibEpub" + LibidURL);
+        let PreviousEpubBase64 = await Library.LibRequireEpub(LibidURL);
         let MergedEpub = await Library.LibMergeEpub(PreviousEpubBase64, AddEpub, LibidURL);
         Library.userPreferences.readingList.addEpub(startingUrlInput);
         if (document.getElementById("LibDownloadEpubAfterUpdateCheckbox").checked) {
@@ -543,7 +543,7 @@ class Library { // eslint-disable-line no-unused-vars
     }
     
     static async LibMergeUpload(objbtn) {
-        let PreviousEpubBase64 = await Library.LibGetFromStorage("LibEpub" + objbtn.dataset.libepubid);
+        let PreviousEpubBase64 = await Library.LibRequireEpub(objbtn.dataset.libepubid);
         let AddEpubBlob = objbtn.files[0];
         await Library.LibMergeEpub(PreviousEpubBase64, AddEpubBlob, objbtn.dataset.libepubid);
         let LibStoryURL = await Library.LibGetFromStorage("LibStoryURL" + objbtn.dataset.libepubid);
@@ -1318,6 +1318,14 @@ class Library { // eslint-disable-line no-unused-vars
         });
     }
 
+    static async LibRequireEpub(id) {
+        let epub = await Library.epubStorage.get(id);
+        if (epub == null) {
+            throw new Error("EPUB not found in library storage for book " + id + ".");
+        }
+        return epub;
+    }
+
     static AppendHtmlInDiv(HTMLstring, DivObjectInject, DivClassWraper ) {
         let parsed = util.sanitize(HTMLstring);
         let tags = parsed.getElementsByClassName(DivClassWraper);
@@ -1342,7 +1350,7 @@ class Library { // eslint-disable-line no-unused-vars
             return null;
         }
         
-        let EpubBase64 = await Library.LibGetFromStorage("LibEpub" + LibidURL);
+        let EpubBase64 = await Library.LibRequireEpub(LibidURL);
         let EpubReader = await new zip.Data64URIReader(EpubBase64);
         let EpubZip = new zip.ZipReader(EpubReader, {useWebWorkers: false});
         let EpubContent = await EpubZip.getEntries();

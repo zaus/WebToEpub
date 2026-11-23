@@ -528,6 +528,44 @@ test("routes EPUB reads through the configured adapter", async () => {
     assert.deepEqual(calls, []);
 });
 
+test("chapter lookup distinguishes untracked stories from missing stored EPUBs", async () => {
+    let {context} = createLibraryContext();
+    vm.runInContext(`
+        Library.LibGetStorageIDs = async () => [7];
+        Library.LibGetFromStorageArray = async () => ({LibStoryURL7: "url"});
+        Library.epubStorage = {get: async () => undefined};
+    `, context);
+    assert.equal(await vm.runInContext('Library.LibGetSourceChapterList("other")', context), null);
+    await assert.rejects(vm.runInContext('Library.LibGetSourceChapterList("url")', context), /EPUB not found.*7/);
+    vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Backend unavailable"); }}', context);
+    await assert.rejects(vm.runInContext('Library.LibGetSourceChapterList("url")', context), /Backend unavailable/);
+});
+
+test("manual merge stops before processing when stored EPUB is missing", async () => {
+    let {context} = createLibraryContext();
+    let merged = false;
+    context.markMerged = () => { merged = true; };
+    vm.runInContext('Library.epubStorage = {get: async () => undefined}; Library.LibMergeEpub = async () => markMerged()', context);
+    await assert.rejects(vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context), /EPUB not found.*7/);
+    assert.equal(merged, false);
+});
+
+test("acquisition merge does not update reading state when stored EPUB is missing", async () => {
+    let {context} = createLibraryContext();
+    let added = 0;
+    context.added = () => { added++; };
+    context.document = {getElementById: () => ({value: "url", checked: false})};
+    vm.runInContext(`
+        Library.userPreferences = {readingList: {addEpub: () => added()}};
+        Library.LibShowLoadingText = () => {};
+        Library.LibGetStorageIDs = async () => [7];
+        Library.LibGetFromStorageArray = async () => ({LibStoryURL7: "url"});
+        Library.epubStorage = {get: async () => undefined};
+    `, context);
+    await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /EPUB not found.*7/);
+    assert.equal(added, 0);
+});
+
 function setupExport(context) {
     let entries = [];
     let downloads = [];
