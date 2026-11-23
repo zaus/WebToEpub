@@ -365,6 +365,81 @@ for (let format of ["legacy", "zip"]) {
         assert.deepEqual(values.LibArray, [3]);
         assert.equal(values.LibEpub4, undefined);
     });
+
+    test(`${format} import reports partial completion if a later book fails`, async () => {
+        let values = {LibArray: []};
+        let {context, runtime} = createLibraryContext(values);
+        let writes = 0;
+        let loaded = false;
+        context.chrome.storage.local.set = (items, callback) => {
+            writes++;
+            if (writes === 2) {
+                runtime.lastError = {message: "Storage quota exceeded"};
+                callback();
+                runtime.lastError = null;
+            } else {
+                Object.assign(values, items);
+                callback();
+            }
+        };
+        context.markLoaded = () => { loaded = true; };
+        context.ProgressBar = {setMax() {}, setValue() {}};
+        context.zip = {
+            BlobReader: class {},
+            TextWriter: class {},
+            ZipReader: class {
+                async getEntries() {
+                    let contents = {"LibraryVersion.txt": "2", "LibraryCountEntries.txt": "2", "ReadingList.json": "{}"};
+                    for (let i = 0; i < 2; i++) {
+                        for (let name of ["LibCover", "LibEpub", "LibFilename", "LibStoryURL", "LibNewChapterCount"]) {
+                            contents[`Library/${i}/${name}`] = `${name}${i}`;
+                        }
+                    }
+                    return Object.entries(contents).map(([filename, value]) => ({filename, getData: async () => value}));
+                }
+            }
+        };
+        vm.runInContext(`
+            Library.userPreferences = {loadReadingListFromJson: () => markLoaded()};
+            LibFileReader.result = JSON.stringify({Library: [
+                {LibEpub: "book0", LibStoryURL: "url0", LibCover: "cover0", LibFilename: "title0"},
+                {LibEpub: "book1", LibStoryURL: "url1", LibCover: "cover1", LibFilename: "title1"}
+            ]});
+        `, context);
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        await assert.rejects(vm.runInContext(expression, context), /1 book\(s\) were already imported.*duplicates.*Storage quota exceeded/);
+        assert.deepEqual(Array.from(values.LibArray), [0]);
+        assert.equal(values.LibEpub0, format === "zip" ? "LibEpub0" : "book0");
+        assert.equal(values.LibEpub1, undefined);
+        assert.equal(loaded, false);
+    });
+
+    test(`${format} import reports saved books if the reading list cannot be restored`, async () => {
+        let values = {LibArray: []};
+        let {context} = createLibraryContext(values);
+        context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+        context.ProgressBar = {setMax() {}, setValue() {}};
+        context.zip = {
+            BlobReader: class {},
+            TextWriter: class {},
+            ZipReader: class {
+                async getEntries() {
+                    let contents = {"LibraryVersion.txt": "2", "LibraryCountEntries.txt": "1", "ReadingList.json": "{}"};
+                    for (let name of ["LibCover", "LibEpub", "LibFilename", "LibStoryURL", "LibNewChapterCount"]) {
+                        contents[`Library/0/${name}`] = name;
+                    }
+                    return Object.entries(contents).map(([filename, value]) => ({filename, getData: async () => value}));
+                }
+            }
+        };
+        vm.runInContext(`
+            Library.userPreferences = {loadReadingListFromJson: () => { throw new Error("Reading list failed"); }};
+            LibFileReader.result = JSON.stringify({Library: [{LibEpub: "book", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
+        `, context);
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        await assert.rejects(vm.runInContext(expression, context), /1 book\(s\) were already imported.*duplicates.*Reading list failed/);
+        assert.deepEqual(Array.from(values.LibArray), [0]);
+    });
 }
 
 test("import and update allocate distinct IDs when they overlap", async () => {

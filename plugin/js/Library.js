@@ -1198,17 +1198,25 @@ class Library { // eslint-disable-line no-unused-vars
         ProgressBar.setMax(LibCountEntries);
         for (let i = 0; i < LibCountEntries; i++) {
             ProgressBar.setValue(i);
-            await Library.LibImportBook({
-                cover: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibCover")[0]).getData(new zip.TextWriter()),
-                epub: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibEpub")[0]).getData(new zip.TextWriter()),
-                filename: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibFilename")[0]).getData(new zip.TextWriter()),
-                storyURL: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibStoryURL")[0]).getData(new zip.TextWriter()),
-                newChapterCount: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibNewChapterCount")[0])?.getData(new zip.TextWriter())??"0"
-            });
+            try {
+                await Library.LibImportBook({
+                    cover: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibCover")[0]).getData(new zip.TextWriter()),
+                    epub: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibEpub")[0]).getData(new zip.TextWriter()),
+                    filename: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibFilename")[0]).getData(new zip.TextWriter()),
+                    storyURL: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibStoryURL")[0]).getData(new zip.TextWriter()),
+                    newChapterCount: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibNewChapterCount")[0])?.getData(new zip.TextWriter())??"0"
+                });
+            } catch (error) {
+                throw Library.LibImportError(i, error);
+            }
         }
         ProgressBar.setValue(LibCountEntries);
-        Library.userPreferences.loadReadingListFromJson(JSON.parse( await (await entries.filter((a) => a.filename == "ReadingList.json")[0]).getData(new zip.TextWriter())));
-        Library.LibRenderSavedEpubs();
+        try {
+            Library.userPreferences.loadReadingListFromJson(JSON.parse( await (await entries.filter((a) => a.filename == "ReadingList.json")[0]).getData(new zip.TextWriter())));
+            await Library.LibRenderSavedEpubs();
+        } catch (error) {
+            throw Library.LibImportError(Number(LibCountEntries), error);
+        }
     }
 
     static LibFileReaderloadImportLegacyWithErrorHandling() {
@@ -1218,15 +1226,30 @@ class Library { // eslint-disable-line no-unused-vars
     static async LibFileReaderloadImportLegacy() {
         let json = JSON.parse(LibFileReader.result);
         for (let i = 0; i < json.Library.length; i++) {
-            await Library.LibImportBook({
-                epub: json.Library[i].LibEpub,
-                storyURL: json.Library[i].LibStoryURL,
-                cover: json.Library[i].LibCover,
-                filename: json.Library[i].LibFilename
-            });
+            try {
+                await Library.LibImportBook({
+                    epub: json.Library[i].LibEpub,
+                    storyURL: json.Library[i].LibStoryURL,
+                    cover: json.Library[i].LibCover,
+                    filename: json.Library[i].LibFilename
+                });
+            } catch (error) {
+                throw Library.LibImportError(i, error);
+            }
         }
-        Library.userPreferences.loadReadingListFromJson(json);
-        Library.LibRenderSavedEpubs();
+        try {
+            Library.userPreferences.loadReadingListFromJson(json);
+            await Library.LibRenderSavedEpubs();
+        } catch (error) {
+            throw Library.LibImportError(json.Library.length, error);
+        }
+    }
+
+    static LibImportError(completed, error) {
+        let progress = completed > 0
+            ? completed + " book(s) were already imported; retrying the whole import may create duplicates. "
+            : "No books were imported. ";
+        return new Error("Library import failed. " + progress + error.message);
     }
 
     static LibSaveTextURLChange(obj) {
