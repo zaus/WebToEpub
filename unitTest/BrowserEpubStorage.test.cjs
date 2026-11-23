@@ -231,6 +231,43 @@ test("post-save refresh errors identify that the EPUB was saved", async () => {
     assert.equal(values.LibEpub0, "epub");
 });
 
+test("manual EPUB upload normalizes Firefox MIME type and records source chapters", async () => {
+    let values = {LibArray: []};
+    let {context} = createLibraryContext(values);
+    let recorded;
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob.content; this.onload(); }
+    };
+    context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+    context.recordChapter = (...args) => { recorded = args; };
+    vm.runInContext(`
+        Library.LibShowLoadingText = () => {};
+        Library.LibSaveCoverImgInStorage = async () => {};
+        Library.LibRenderSavedEpubs = async () => {};
+        Library.LibGetSourceURL = async () => "source-url";
+        Library.LibGetSourceChapterList = async () => ["chapter1", "chapter2"];
+        Library.userPreferences = {readingList: {setEpub: (...args) => recordChapter(...args)}};
+    `, context);
+    await vm.runInContext('Library.LibHandleUpdate({files: [{name: "book.epub", content: "data:application/octet-stream;base64,YQ=="}]}, -1, "", "", -1)', context);
+    assert.equal(values.LibEpub0, "data:application/epub+zip;base64,YQ==");
+    assert.equal(values.LibFilename0, "book");
+    assert.equal(values.LibStoryURL0, "source-url");
+    assert.deepEqual(recorded, ["source-url", "chapter2"]);
+});
+
+test("updates preserve the chapter-count sentinel behavior", async () => {
+    let values = {LibArray: [7], LibNewChapterCount7: "-1"};
+    let {context} = createLibraryContext(values);
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob; this.onload(); }
+    };
+    context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibSaveCoverImgInStorage = async () => {}; Library.LibRenderSavedEpubs = async () => {}', context);
+    await vm.runInContext('Library.LibHandleUpdate(-1, "epub", "url", "title", 7, 4)', context);
+    assert.equal(values.LibNewChapterCount7, 0);
+    assert.deepEqual(Array.from(values.LibArray), [7]);
+});
+
 test("acquisition does not advance reading list or download when saving fails", async () => {
     let {context} = createLibraryContext();
     let added = 0;
