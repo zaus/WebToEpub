@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Companion staging diagnostic</title>
+    <link href="css/default.css" rel="stylesheet">
+</head>
+<body>
+    <main>
+        <h1>Companion staging diagnostic</h1>
+        <p>Experimental: this sends a copy to the local companion's staging folder. It does not update a library or switch storage providers. Chapter metadata is not transferred.</p>
+        <form id="stagingForm">
+            <p><label for="book">Browser-library book</label> <select id="book" required></select></p>
+            <p><label for="port">Companion port</label> <input id="port" type="number" min="1" max="65535" value="8765" required></p>
+            <p><label for="token">Companion token</label> <input id="token" type="password" autocomplete="off" required></p>
+            <button id="stage" type="submit" disabled>Stage a copy</button>
+        </form>
+        <p id="status" role="status" aria-live="polite">Loading browser library...</p>
+    </main>
+    <script src="js/BrowserEpubStorage.js"></script>
+    <script src="js/CompanionStagingClient.js"></script>
+    <script src="js/CompanionStagingPage.js"></script>
+</body>
+</html>
