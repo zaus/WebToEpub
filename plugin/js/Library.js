@@ -1187,7 +1187,7 @@ class Library { // eslint-disable-line no-unused-vars
         ProgressBar.setMax(LibCountEntries);
         for (let i = 0; i < LibCountEntries; i++) {
             ProgressBar.setValue(i);
-            chrome.storage.local.set({
+            await Library.LibSetInStorage({
                 ["LibCover" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibCover")[0]).getData(new zip.TextWriter()),
                 ["LibEpub" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibEpub")[0]).getData(new zip.TextWriter()),
                 ["LibFilename" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibFilename")[0]).getData(new zip.TextWriter()),
@@ -1216,7 +1216,7 @@ class Library { // eslint-disable-line no-unused-vars
             }
         });
         for (let i = 0; i < json.Library.length; i++) {
-            chrome.storage.local.set({
+            await Library.LibSetInStorage({
                 ["LibEpub" + HighestLibEpub]: json.Library[i].LibEpub,
                 ["LibStoryURL" + HighestLibEpub]: json.Library[i].LibStoryURL,
                 ["LibCover" + HighestLibEpub]: json.Library[i].LibCover,

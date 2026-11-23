@@ -287,6 +287,85 @@ test("acquisition does not advance reading list or download when saving fails", 
     assert.equal(downloaded, 0);
 });
 
+for (let format of ["legacy", "zip"]) {
+    test(`${format} import waits for the book write before recording its ID`, async () => {
+        let {context} = createLibraryContext();
+        let finish;
+        let ids = [];
+        let loadedReadingList = false;
+        context.chrome.storage.local.set = (items, callback) => { finish = callback; };
+        context.recordId = id => { ids.push(id); };
+        context.recordReadingList = () => { loadedReadingList = true; };
+        context.ProgressBar = {setMax() {}, setValue() {}};
+        context.zip = {
+            BlobReader: class {},
+            TextWriter: class {},
+            ZipReader: class {
+                async getEntries() {
+                    let contents = {
+                        "LibraryVersion.txt": "2",
+                        "LibraryCountEntries.txt": "1",
+                        "Library/0/LibCover": "cover",
+                        "Library/0/LibEpub": "epub",
+                        "Library/0/LibFilename": "title",
+                        "Library/0/LibStoryURL": "url",
+                        "Library/0/LibNewChapterCount": "0",
+                        "ReadingList.json": "{}"
+                    };
+                    return Object.entries(contents).map(([filename, value]) => ({filename, getData: async () => value}));
+                }
+            }
+        };
+        vm.runInContext(`
+            Library.LibGetStorageIDs = async () => [];
+            Library.LibCreateStorageIDs = async id => recordId(id);
+            Library.LibRenderSavedEpubs = () => {};
+            Library.userPreferences = {loadReadingListFromJson: () => recordReadingList()};
+            LibFileReader.result = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
+        `, context);
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        let imported = vm.runInContext(expression, context);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(ids, []);
+        assert.equal(loadedReadingList, false);
+        finish();
+        await imported;
+        assert.deepEqual(ids, [0]);
+        assert.equal(loadedReadingList, true);
+    });
+
+    test(`${format} import does not record an ID when the book write fails`, async () => {
+        let {context, runtime} = createLibraryContext();
+        let ids = [];
+        context.chrome.storage.local.set = (items, callback) => {
+            runtime.lastError = {message: "Import write failed"};
+            callback();
+            runtime.lastError = null;
+        };
+        context.recordId = id => ids.push(id);
+        context.ProgressBar = {setMax() {}, setValue() {}};
+        context.zip = {
+            BlobReader: class {},
+            TextWriter: class {},
+            ZipReader: class {
+                async getEntries() {
+                    let names = ["LibraryVersion.txt", "LibraryCountEntries.txt", "Library/0/LibCover", "Library/0/LibEpub",
+                        "Library/0/LibFilename", "Library/0/LibStoryURL", "Library/0/LibNewChapterCount"];
+                    return names.map(filename => ({filename, getData: async () => filename === "LibraryVersion.txt" ? "2" : "1"}));
+                }
+            }
+        };
+        vm.runInContext(`
+            Library.LibGetStorageIDs = async () => [];
+            Library.LibCreateStorageIDs = async id => recordId(id);
+            LibFileReader.result = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
+        `, context);
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        await assert.rejects(vm.runInContext(expression, context), /Import write failed/);
+        assert.deepEqual(ids, []);
+    });
+}
+
 test("routes EPUB reads through the configured adapter", async () => {
     let {context, calls} = createLibraryContext();
     vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
