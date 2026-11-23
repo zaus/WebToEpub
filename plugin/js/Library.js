@@ -37,15 +37,18 @@ class Library { // eslint-disable-line no-unused-vars
         let MergedEpub = await Library.LibMergeEpub(PreviousEpubBase64, AddEpub, LibidURL);
         Library.userPreferences.readingList.addEpub(startingUrlInput);
         if (document.getElementById("LibDownloadEpubAfterUpdateCheckbox").checked) {
-            chrome.storage.local.set({
-                ["LibNewChapterCount" + LibidURL]: "-1"
-            });
             fileName = EpubPacker.addExtensionIfMissing(await Library.LibGetFromStorage("LibFilename" + LibidURL));
             if (Download.isFileNameIllegalOnWindows(fileName)) {
                 ErrorLog.showErrorMessage(UIText.Error.errorIllegalFileName(fileName, Download.illegalWindowsFileNameChars));
                 return;
             }
-            return Download.save(MergedEpub, fileName.trim(), overwriteExisting, backgroundDownload);
+            let download = await Download.save(MergedEpub, fileName.trim(), overwriteExisting, backgroundDownload);
+            try {
+                await Library.LibSetInStorage({["LibNewChapterCount" + LibidURL]: "-1"});
+            } catch (error) {
+                throw new Error("The download request returned, but the chapter marker could not be saved: " + error.message);
+            }
+            return download;
         } else {
             return new Promise((resolve) => {resolve();});
         }

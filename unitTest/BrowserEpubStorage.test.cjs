@@ -681,6 +681,61 @@ test("acquisition merge does not update reading state when stored EPUB is missin
     assert.equal(added, 0);
 });
 
+function setupMergedDownload(context) {
+    context.document = {getElementById: () => ({value: "url", checked: true})};
+    context.EpubPacker = {addExtensionIfMissing: name => name + ".epub"};
+    context.Download = {isFileNameIllegalOnWindows: () => false};
+    vm.runInContext(`
+        Library.userPreferences = {readingList: {addEpub: () => {}}};
+        Library.LibShowLoadingText = () => {};
+        Library.LibMergeEpub = async () => "merged";
+    `, context);
+}
+
+test("merged download preserves the chapter marker on download failure", async () => {
+    let values = {LibArray: [7], LibStoryURL7: "url", LibFilename7: "title", LibEpub7: "existing", LibNewChapterCount7: 4};
+    let {context} = createLibraryContext(values);
+    setupMergedDownload(context);
+    let writes = 0;
+    context.chrome.storage.local.set = () => { writes++; };
+    context.Download.save = async () => { throw new Error("Download failed"); };
+    await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /Download failed/);
+    assert.equal(writes, 0);
+    assert.equal(values.LibNewChapterCount7, 4);
+});
+
+test("merged download waits for the chapter marker after successful download", async () => {
+    let values = {LibArray: [7], LibStoryURL7: "url", LibFilename7: "title", LibEpub7: "existing"};
+    let {context} = createLibraryContext(values);
+    setupMergedDownload(context);
+    context.Download.save = async () => "downloaded";
+    let finish;
+    context.chrome.storage.local.set = (items, callback) => {
+        finish = () => { Object.assign(values, items); callback(); };
+    };
+    let completed = false;
+    let operation = vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context);
+    operation.then(() => { completed = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(completed, false);
+    finish();
+    assert.equal(await operation, "downloaded");
+    assert.equal(values.LibNewChapterCount7, "-1");
+});
+
+test("merged download reports chapter marker failure after downloading", async () => {
+    let values = {LibArray: [7], LibStoryURL7: "url", LibFilename7: "title", LibEpub7: "existing"};
+    let {context, runtime} = createLibraryContext(values);
+    setupMergedDownload(context);
+    context.Download.save = async () => "downloaded";
+    context.chrome.storage.local.set = (items, callback) => {
+        runtime.lastError = {message: "Storage unavailable"};
+        callback();
+        runtime.lastError = null;
+    };
+    await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /download request returned.*Storage unavailable/);
+});
+
 function setupExport(context) {
     let entries = [];
     let downloads = [];
