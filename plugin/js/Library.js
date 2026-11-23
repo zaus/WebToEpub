@@ -462,7 +462,7 @@ class Library { // eslint-disable-line no-unused-vars
             document.getElementById("libupdateall").addEventListener("click", function() {Library.Libupdateall();});
             if (ShowAdvancedOptions) {
                 document.getElementById("libdeleteall").addEventListener("click", function() {Library.Libdeleteall();});
-                document.getElementById("libexportall").addEventListener("click", function() {Library.Libexportall();});
+                document.getElementById("libexportall").addEventListener("click", function() {Library.Libexportall().catch(err => ErrorLog.showErrorMessage(err));});
                 document.getElementById("LibImportLibraryLabel").addEventListener("mouseover", function() {Library.LibMouseoverButtonUpload(this);});
                 document.getElementById("LibImportLibraryLabel").addEventListener("mouseout", function() {Library.LibMouseoutButtonUpload(this);});
                 document.getElementById("LibImportLibraryFile").addEventListener("change", function() {Library.LibHandelImport(this).catch(err => ErrorLog.showErrorMessage(err));});
@@ -1140,18 +1140,22 @@ class Library { // eslint-disable-line no-unused-vars
         let zipFileWriter = new zip.BlobWriter("application/zip");
         let zipWriter = new zip.ZipWriter(zipFileWriter,{useWebWorkers: false,compressionMethod: 8});
         //in case for future changes to differntiate between different export versions
-        zipWriter.add("LibraryVersion.txt", new zip.TextReader("2"));
-        zipWriter.add("LibraryCountEntries.txt", new zip.TextReader(CurrentLibKeys.length));
+        await zipWriter.add("LibraryVersion.txt", new zip.TextReader("2"));
+        await zipWriter.add("LibraryCountEntries.txt", new zip.TextReader(CurrentLibKeys.length));
         ProgressBar.setMax(CurrentLibKeys.length);
         for (let i = 0; i < CurrentLibKeys.length; i++) {
             ProgressBar.setValue(i);
-            zipWriter.add("Library/"+i+"/LibCover", new zip.TextReader(await Library.LibGetFromStorage("LibCover"+CurrentLibKeys[i])));
-            zipWriter.add("Library/"+i+"/LibEpub", new zip.TextReader(await Library.LibGetFromStorage("LibEpub" + CurrentLibKeys[i])));
-            zipWriter.add("Library/"+i+"/LibFilename", new zip.TextReader(await Library.LibGetFromStorage("LibFilename" + CurrentLibKeys[i])));
-            zipWriter.add("Library/"+i+"/LibStoryURL", new zip.TextReader(await Library.LibGetFromStorage("LibStoryURL" + CurrentLibKeys[i])));
-            zipWriter.add("Library/"+i+"/LibNewChapterCount", new zip.TextReader(await Library.LibGetFromStorage("LibNewChapterCount"+CurrentLibKeys[i]) ?? "0"));
+            let epub = await Library.epubStorage.get(CurrentLibKeys[i]);
+            if (epub == null) {
+                throw new Error("EPUB not found in library storage for book " + CurrentLibKeys[i] + ".");
+            }
+            await zipWriter.add("Library/"+i+"/LibCover", new zip.TextReader(await Library.LibGetFromStorage("LibCover"+CurrentLibKeys[i])));
+            await zipWriter.add("Library/"+i+"/LibEpub", new zip.TextReader(epub));
+            await zipWriter.add("Library/"+i+"/LibFilename", new zip.TextReader(await Library.LibGetFromStorage("LibFilename" + CurrentLibKeys[i])));
+            await zipWriter.add("Library/"+i+"/LibStoryURL", new zip.TextReader(await Library.LibGetFromStorage("LibStoryURL" + CurrentLibKeys[i])));
+            await zipWriter.add("Library/"+i+"/LibNewChapterCount", new zip.TextReader(await Library.LibGetFromStorage("LibNewChapterCount"+CurrentLibKeys[i]) ?? "0"));
         }
-        zipWriter.add("ReadingList.json", new zip.TextReader(JSON.stringify(fileReadingList)));
+        await zipWriter.add("ReadingList.json", new zip.TextReader(JSON.stringify(fileReadingList)));
         Download.save(await zipWriter.close(), "Libraryexport.zip").catch (err => ErrorLog.showErrorMessage(err));
         ProgressBar.setValue(CurrentLibKeys.length);
         Library.LibRenderSavedEpubs();

@@ -528,6 +528,57 @@ test("routes EPUB reads through the configured adapter", async () => {
     assert.deepEqual(calls, []);
 });
 
+function setupExport(context) {
+    let entries = [];
+    let downloads = [];
+    context.ReadingList = class {
+        readFromLocalStorage() {}
+        toJson() { return JSON.stringify({epubs: [{toc: "url"}, {toc: "other"}]}); }
+    };
+    context.ProgressBar = {setMax() {}, setValue() {}};
+    context.Download = {save: async (...args) => { downloads.push(args); }};
+    context.zip = {
+        BlobWriter: class {},
+        TextReader: class { constructor(value) { this.value = value; } },
+        ZipWriter: class {
+            async add(name, reader) { entries.push([name, reader.value]); }
+            async close() { return "archive"; }
+        }
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibRenderSavedEpubs = () => {}; Library.LibGetStorageIDs = async () => [7]; Library.LibGetFromStorageArray = async () => ({LibStoryURL7: "url"})', context);
+    return {entries, downloads};
+}
+
+test("library export reads the selected adapter and preserves archive metadata", async () => {
+    let {context} = createLibraryContext({LibCover7: "cover", LibFilename7: "title", LibStoryURL7: "url", LibNewChapterCount7: "2"});
+    let {entries, downloads} = setupExport(context);
+    vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
+    await vm.runInContext("Library.Libexportall()", context);
+    assert.equal(entries.find(([name]) => name === "Library/0/LibEpub")[1], "adapter:7");
+    assert.equal(entries.find(([name]) => name === "Library/0/LibFilename")[1], "title");
+    assert.equal(entries.find(([name]) => name === "Library/0/LibNewChapterCount")[1], "2");
+    assert.deepEqual(JSON.parse(entries.find(([name]) => name === "ReadingList.json")[1]).ReadingList.epubs, [{toc: "url"}]);
+    assert.deepEqual(downloads, [["archive", "Libraryexport.zip"]]);
+});
+
+test("library export stops without downloading for missing or failed EPUB reads", async () => {
+    let {context} = createLibraryContext();
+    let {downloads} = setupExport(context);
+    vm.runInContext('Library.epubStorage = {get: async () => undefined}', context);
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /EPUB not found.*7/);
+    vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Backend unavailable"); }}', context);
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /Backend unavailable/);
+    assert.deepEqual(downloads, []);
+});
+
+test("library export propagates ZIP entry failures without downloading", async () => {
+    let {context} = createLibraryContext();
+    let {downloads} = setupExport(context);
+    context.zip.ZipWriter = class { async add() { throw new Error("ZIP write failed"); } };
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /ZIP write failed/);
+    assert.deepEqual(downloads, []);
+});
+
 test("downloads the selected adapter's EPUB and retains download preferences", async () => {
     let {context} = createLibraryContext({LibFilename7: "Title"});
     let removed = [];
