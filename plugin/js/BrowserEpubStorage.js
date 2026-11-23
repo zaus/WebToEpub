@@ -14,10 +14,10 @@ class BrowserEpubStorage { // eslint-disable-line no-unused-vars
         });
     }
 
-    async set(id, epub) {
+    async set(id, epub, metadata = {}) {
         let key = "LibEpub" + id;
         return new Promise((resolve, reject) => {
-            chrome.storage.local.set({[key]: epub}, () => {
+            chrome.storage.local.set({...metadata, [key]: epub}, () => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
                     return;

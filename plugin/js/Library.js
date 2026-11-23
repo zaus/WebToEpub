@@ -862,8 +862,7 @@ class Library { // eslint-disable-line no-unused-vars
         return Library.LibQueueWrite(async () => {
             let ids = await Library.LibGetStorageIDs();
             let id = ids.reduce((highest, current) => Math.max(highest, parseInt(current) + 1), 0);
-            await Library.LibSetInStorage({
-                ["LibEpub" + id]: book.epub,
+            await Library.epubStorage.set(id, book.epub, {
                 ["LibStoryURL" + id]: book.storyURL,
                 ["LibCover" + id]: book.cover,
                 ["LibFilename" + id]: book.filename,
@@ -903,8 +902,7 @@ class Library { // eslint-disable-line no-unused-vars
         if (!CurrentLibStoryIds.some(existingId => existingId == Id)) {
             CurrentLibStoryIds.push(parseInt(Id));
         }
-        await Library.LibSetInStorage({
-            ["LibEpub" + Id]: result,
+        await Library.epubStorage.set(Id, result, {
             ["LibStoryURL" + Id]: StoryURL,
             ["LibFilename" + Id]: Filename,
             ["LibNewChapterCount" + Id]: totalNewChapterCount,

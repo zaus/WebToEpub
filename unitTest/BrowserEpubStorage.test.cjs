@@ -75,6 +75,17 @@ test("propagates browser EPUB write failures", async () => {
     await assert.rejects(vm.runInContext('Library.epubStorage.set("7", "data")', context), /Storage quota exceeded/);
 });
 
+test("browser adapter saves EPUB and metadata in one storage operation", async () => {
+    let {context} = createLibraryContext();
+    let writes = [];
+    context.chrome.storage.local.set = (value, callback) => { writes.push(value); callback(); };
+    await vm.runInContext('Library.epubStorage.set("7", "epub", {LibArray: [7], LibFilename7: "title", LibEpub7: "wrong"})', context);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].LibEpub7, "epub");
+    assert.equal(writes[0].LibFilename7, "title");
+    assert.deepEqual(Array.from(writes[0].LibArray), [7]);
+});
+
 test("library ID creation waits for storage completion", async () => {
     let {context} = createLibraryContext({LibArray: [3]});
     let saved;
@@ -195,6 +206,37 @@ test("failed library write does not advance metadata and later updates can retry
     assert.equal(values.LibEpub7, "new");
     assert.equal(values.LibStoryURL7, "new-url");
     assert.equal(values.LibNewChapterCount7, 3);
+});
+
+test("library update uses selected adapter and propagates its write errors", async () => {
+    let {context} = createLibraryContext({LibArray: [7], LibNewChapterCount7: 1});
+    let writes = [];
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob; this.onload(); }
+    };
+    context.writeAdapter = async (...args) => { writes.push(args); throw new Error("Selected storage failed"); };
+    context.chrome.storage.local.set = () => { throw new Error("Unexpected browser write"); };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.epubStorage = {set: (...args) => writeAdapter(...args)}', context);
+    await assert.rejects(vm.runInContext('Library.LibHandleUpdate(-1, "new", "url", "title", 7, 2)', context), /Selected storage failed/);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0][0], 7);
+    assert.equal(writes[0][1], "new");
+    assert.equal(writes[0][2].LibNewChapterCount7, 3);
+    assert.deepEqual(Array.from(writes[0][2].LibArray), [7]);
+});
+
+test("library import sends EPUB and metadata to the selected adapter", async () => {
+    let {context} = createLibraryContext({LibArray: [3]});
+    let write;
+    context.writeAdapter = async (...args) => { write = args; };
+    context.chrome.storage.local.set = () => { throw new Error("Unexpected browser write"); };
+    vm.runInContext('Library.epubStorage = {set: (...args) => writeAdapter(...args)}', context);
+    await vm.runInContext('Library.LibImportBook({epub:"new", storyURL:"url", filename:"title", cover:"cover", newChapterCount:"2"})', context);
+    assert.equal(write[0], 4);
+    assert.equal(write[1], "new");
+    assert.equal(write[2].LibStoryURL4, "url");
+    assert.equal(write[2].LibNewChapterCount4, "2");
+    assert.deepEqual(Array.from(write[2].LibArray), [3, 4]);
 });
 
 test("library update waits for the browser storage callback", async () => {
