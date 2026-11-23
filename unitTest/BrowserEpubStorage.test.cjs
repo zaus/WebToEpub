@@ -94,3 +94,72 @@ test("download reports missing EPUB and storage errors without clearing state", 
     vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Storage unavailable"); }}', context);
     await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /Storage unavailable/);
 });
+
+test("cover extraction reads EPUB through the adapter", async () => {
+    let {context} = createLibraryContext();
+    let saved;
+    let readEpub;
+    context.chrome.storage.local.set = (value, callback) => { saved = value; callback(); };
+    context.zip = {
+        Data64URIReader: class { constructor(value) { readEpub = value; } },
+        Data64URIWriter: class {},
+        TextWriter: class {},
+        ZipReader: class {
+            async getEntries() {
+                return [
+                    {filename: "OEBPS/Text/Cover.xhtml", directory: false, getData: async () => '"../Images/000.jpg"'},
+                    {filename: "OEBPS/Images/000.jpg", directory: false, getData: async () => "data:;base64,YQ=="}
+                ];
+            }
+        }
+    };
+    vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
+    await vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context);
+    assert.equal(readEpub, "adapter:7");
+    assert.equal(saved.LibCover7, "data:image/jpg;base64,YQ==");
+});
+
+test("existing cached cover avoids loading EPUB", async () => {
+    let {context} = createLibraryContext({LibCover7: "existing"});
+    vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Unexpected read"); }}', context);
+    await vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context);
+});
+
+test("cover extraction propagates storage failures instead of caching a placeholder", async () => {
+    let {context} = createLibraryContext();
+    let writes = 0;
+    context.chrome.storage.local.set = () => { writes++; };
+    vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Storage unavailable"); }}', context);
+    await assert.rejects(vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context), /Storage unavailable/);
+    vm.runInContext('Library.epubStorage = {get: async () => undefined}', context);
+    await assert.rejects(vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context), /EPUB not found/);
+    assert.equal(writes, 0);
+});
+
+test("cover extraction retains the placeholder for EPUBs without a cover", async () => {
+    let {context} = createLibraryContext();
+    let saved;
+    context.chrome.storage.local.set = (value, callback) => { saved = value; callback(); };
+    context.zip = {
+        Data64URIReader: class {},
+        ZipReader: class { async getEntries() { return []; } }
+    };
+    vm.runInContext('Library.epubStorage = {get: async () => "epub"}', context);
+    await vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context);
+    assert.match(saved.LibCover7, /^data:image\/svg\+xml;base64,/);
+});
+
+test("cover cache write errors propagate", async () => {
+    let {context, runtime} = createLibraryContext();
+    context.chrome.storage.local.set = (value, callback) => {
+        runtime.lastError = {message: "Cover cache unavailable"};
+        callback();
+        runtime.lastError = null;
+    };
+    context.zip = {
+        Data64URIReader: class {},
+        ZipReader: class { async getEntries() { return []; } }
+    };
+    vm.runInContext('Library.epubStorage = {get: async () => "epub"}', context);
+    await assert.rejects(vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context), /Cover cache unavailable/);
+});
