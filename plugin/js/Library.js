@@ -490,7 +490,7 @@ class Library { // eslint-disable-line no-unused-vars
                     document.getElementById("LibMergeUploadLabel"+CurrentLibKeys[i]).addEventListener("mouseover", function() {Library.LibMouseoverButtonUpload(this);});
                     document.getElementById("LibMergeUploadLabel"+CurrentLibKeys[i]).addEventListener("mouseout", function() {Library.LibMouseoutButtonUpload(this);});
                     document.getElementById("LibSearchNewChapter"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibSearchNewChapter(this);});
-                    document.getElementById("LibEditMetadata"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibEditMetadata(this);});
+                    document.getElementById("LibEditMetadata"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibEditMetadata(this).catch(err => ErrorLog.showErrorMessage(err));});
                     document.getElementById("LibOpenURL"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibOpenURL(this);});
                 }
             }
@@ -795,8 +795,12 @@ class Library { // eslint-disable-line no-unused-vars
     
     static async LibGetMetadata(libepubid) {
         let LibMetadata = [];
+        let epub = await Library.epubStorage.get(libepubid);
+        if (epub == null) {
+            throw new Error("EPUB not found in library storage.");
+        }
         try {
-            let EpubReader = await new zip.Data64URIReader(await Library.LibGetFromStorage("LibEpub"+libepubid));
+            let EpubReader = await new zip.Data64URIReader(epub);
             let EpubZip = new zip.ZipReader(EpubReader, {useWebWorkers: false});
             let EpubContent =  await EpubZip.getEntries();
             let opfFile = await EpubContent.filter(a => a.filename == "OEBPS/content.opf")[0].getData(new zip.TextWriter());

@@ -163,3 +163,40 @@ test("cover cache write errors propagate", async () => {
     vm.runInContext('Library.epubStorage = {get: async () => "epub"}', context);
     await assert.rejects(vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context), /Cover cache unavailable/);
 });
+
+test("metadata reads the EPUB from the selected adapter", async () => {
+    let {context} = createLibraryContext();
+    let readEpub;
+    context.zip = {
+        Data64URIReader: class { constructor(value) { readEpub = value; } },
+        TextWriter: class {},
+        ZipReader: class {
+            async getEntries() {
+                return [{filename: "OEBPS/content.opf", getData: async () => "<dc:title>Example</dc:title><dc:creator>Author</dc:creator>"}];
+            }
+        }
+    };
+    vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
+    let metadata = await vm.runInContext('Library.LibGetMetadata("7")', context);
+    assert.equal(readEpub, "adapter:7");
+    assert.deepEqual(Array.from(metadata), ["Example", "Author", "", "", "", ""]);
+});
+
+test("metadata read surfaces backend errors and missing EPUBs", async () => {
+    let {context} = createLibraryContext();
+    vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Storage unavailable"); }}', context);
+    await assert.rejects(vm.runInContext('Library.LibGetMetadata("7")', context), /Storage unavailable/);
+    vm.runInContext('Library.epubStorage = {get: async () => undefined}', context);
+    await assert.rejects(vm.runInContext('Library.LibGetMetadata("7")', context), /EPUB not found/);
+});
+
+test("metadata read preserves empty metadata for unsupported EPUB structures", async () => {
+    let {context} = createLibraryContext();
+    context.zip = {
+        Data64URIReader: class {},
+        ZipReader: class { async getEntries() { return []; } }
+    };
+    vm.runInContext('Library.epubStorage = {get: async () => "epub"}', context);
+    let metadata = await vm.runInContext('Library.LibGetMetadata("7")', context);
+    assert.deepEqual(Array.from(metadata), []);
+});
