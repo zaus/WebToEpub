@@ -538,7 +538,7 @@ var main = (function() {
     }
 
     function addEventHandlers() {
-        getPackEpubButton().onclick = fetchContentAndPackEpub;
+        getPackEpubButton().onclick = function() {fetchContentAndPackEpub.call(this).catch(err => ErrorLog.showErrorMessage(err));};
         document.getElementById("diagnosticsCheckBoxInput").onclick = onDiagnosticsClick;
         document.getElementById("reloadButton").onclick = populateControls;
         getManuallySelectParserTag().onchange = populateControls;
@@ -546,7 +546,7 @@ var main = (function() {
         document.getElementById("hiddenBibButton").onclick = onLibraryClick;
         document.getElementById("ShowMoreMetadataOptionsCheckbox").addEventListener("change", () => onShowMoreMetadataOptionsClick());
         document.getElementById("LibShowAdvancedOptionsCheckbox").addEventListener("change", () => Library.LibRenderSavedEpubs());
-        document.getElementById("LibAddToLibrary").addEventListener("click", fetchContentAndPackEpub);
+        document.getElementById("LibAddToLibrary").addEventListener("click", function() {fetchContentAndPackEpub.call(this).catch(err => ErrorLog.showErrorMessage(err));});
         document.getElementById("LibPauseToLibrary").addEventListener("click", pauseToLibrary);
         document.getElementById("seriesIndexInput").addEventListener("beforeinput", (event) => seriesIndexInpuValidator(event));
         document.getElementById("manualDelayPerChapterTag").addEventListener("beforeinput", (event) => manualDelayPerChapterValidator(event));

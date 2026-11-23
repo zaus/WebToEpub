@@ -104,6 +104,152 @@ test("library ID creation propagates storage write failures", async () => {
     await assert.rejects(vm.runInContext("Library.LibCreateStorageIDs(7)", context), /ID write failed/);
 });
 
+test("EPUB reads use separate readers for overlapping operations", async () => {
+    let {context} = createLibraryContext();
+    let readers = [];
+    context.FileReader = class {
+        constructor() { readers.push(this); }
+        readAsDataURL(blob) { this.blob = blob; }
+    };
+    let first = vm.runInContext('Library.LibReadEpubAsDataURL("first")', context);
+    let second = vm.runInContext('Library.LibReadEpubAsDataURL("second")', context);
+    assert.equal(readers.length, 2);
+    assert.equal(readers[0].blob, "first");
+    assert.equal(readers[1].blob, "second");
+    readers[1].result = "data:second";
+    readers[1].onload();
+    readers[0].result = "data:first";
+    readers[0].onload();
+    assert.equal(await first, "data:first");
+    assert.equal(await second, "data:second");
+});
+
+test("EPUB read errors and aborts reject", async () => {
+    let {context} = createLibraryContext();
+    let readers = [];
+    context.FileReader = class {
+        constructor() { readers.push(this); }
+        readAsDataURL() {}
+    };
+    let failed = vm.runInContext('Library.LibReadEpubAsDataURL("first")', context);
+    readers[0].error = new Error("Read failed");
+    readers[0].onerror();
+    await assert.rejects(failed, /Read failed/);
+    let aborted = vm.runInContext('Library.LibReadEpubAsDataURL("second")', context);
+    readers[1].onabort();
+    await assert.rejects(aborted, /aborted/);
+});
+
+test("overlapping library updates retain distinct EPUBs and IDs", async () => {
+    let values = {LibArray: []};
+    let {context} = createLibraryContext(values);
+    let readers = [];
+    context.FileReader = class {
+        constructor() { readers.push(this); }
+        readAsDataURL(blob) { this.blob = blob; }
+    };
+    context.chrome.storage.local.set = (items, callback) => {
+        Object.assign(values, items);
+        callback();
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibSaveCoverImgInStorage = async () => {}; Library.LibRenderSavedEpubs = async () => {}', context);
+    let first = vm.runInContext('Library.LibHandleUpdate(-1, "first", "url1", "title1", -1)', context);
+    let second = vm.runInContext('Library.LibHandleUpdate(-1, "second", "url2", "title2", -1)', context);
+    readers[1].result = "data:second";
+    readers[1].onload();
+    readers[0].result = "data:first";
+    readers[0].onload();
+    await Promise.all([first, second]);
+    assert.deepEqual(Array.from(values.LibArray), [0, 1]);
+    let books = [
+        [values.LibStoryURL0, values.LibEpub0],
+        [values.LibStoryURL1, values.LibEpub1]
+    ].sort();
+    assert.deepEqual(books, [["url1", "data:first"], ["url2", "data:second"]]);
+});
+
+test("failed library write does not advance metadata and later updates can retry", async () => {
+    let values = {LibArray: [7], LibEpub7: "old", LibStoryURL7: "old-url", LibNewChapterCount7: 1};
+    let {context, runtime} = createLibraryContext(values);
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob; this.onload(); }
+    };
+    let fail = true;
+    context.chrome.storage.local.set = (items, callback) => {
+        if (fail) {
+            runtime.lastError = {message: "Storage failed"};
+            callback();
+            runtime.lastError = null;
+        } else {
+            Object.assign(values, items);
+            callback();
+        }
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibSaveCoverImgInStorage = async () => {}; Library.LibRenderSavedEpubs = async () => {}', context);
+    await assert.rejects(vm.runInContext('Library.LibHandleUpdate(-1, "new", "new-url", "title", 7, 2)', context), /Storage failed/);
+    assert.equal(values.LibEpub7, "old");
+    assert.equal(values.LibStoryURL7, "old-url");
+    assert.equal(values.LibNewChapterCount7, 1);
+    fail = false;
+    await vm.runInContext('Library.LibHandleUpdate(-1, "new", "new-url", "title", 7, 2)', context);
+    assert.equal(values.LibEpub7, "new");
+    assert.equal(values.LibStoryURL7, "new-url");
+    assert.equal(values.LibNewChapterCount7, 3);
+});
+
+test("library update waits for the browser storage callback", async () => {
+    let values = {LibArray: []};
+    let {context} = createLibraryContext(values);
+    let finish;
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob; this.onload(); }
+    };
+    context.chrome.storage.local.set = (items, callback) => {
+        finish = () => { Object.assign(values, items); callback(); };
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibSaveCoverImgInStorage = async () => {}; Library.LibRenderSavedEpubs = async () => {}', context);
+    let finished = false;
+    let update = vm.runInContext('Library.LibHandleUpdate(-1, "epub", "url", "title", -1)', context);
+    update.then(() => { finished = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(finished, false);
+    finish();
+    await update;
+    assert.equal(finished, true);
+    assert.equal(values.LibEpub0, "epub");
+});
+
+test("post-save refresh errors identify that the EPUB was saved", async () => {
+    let values = {LibArray: []};
+    let {context} = createLibraryContext(values);
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob; this.onload(); }
+    };
+    context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibSaveCoverImgInStorage = async () => {}; Library.LibRenderSavedEpubs = async () => { throw new Error("Refresh failed"); }', context);
+    await assert.rejects(vm.runInContext('Library.LibHandleUpdate(-1, "epub", "url", "title", -1)', context), /EPUB was saved.*Refresh failed/);
+    assert.equal(values.LibEpub0, "epub");
+});
+
+test("acquisition does not advance reading list or download when saving fails", async () => {
+    let {context} = createLibraryContext();
+    let added = 0;
+    let downloaded = 0;
+    context.document = {getElementById: id => id === "startingUrlInput" ? {value: "url"} : {checked: true}};
+    context.Download = {save: async () => { downloaded++; }};
+    vm.runInContext(`
+        Library.userPreferences = {readingList: {addEpub: () => { added(); }}};
+        Library.LibShowLoadingText = () => {};
+        Library.LibGetStorageIDs = async () => [];
+        Library.LibGetFromStorageArray = async () => ({});
+        Library.LibHandleUpdate = async () => { throw new Error("Write failed"); };
+    `, context);
+    context.added = () => { added++; };
+    await assert.rejects(vm.runInContext('new Library().LibAddToLibrary("epub", "book.epub", "url", false, false)', context), /Write failed/);
+    assert.equal(added, 0);
+    assert.equal(downloaded, 0);
+});
+
 test("routes EPUB reads through the configured adapter", async () => {
     let {context, calls} = createLibraryContext();
     vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
