@@ -667,6 +667,98 @@ test("manual merge stops before processing when stored EPUB is missing", async (
     assert.equal(merged, false);
 });
 
+for (let firstKind of ["manual", "acquisition"]) {
+    test(`manual and acquired merges serialize when ${firstKind} starts first`, async () => {
+        let values = {LibArray: [7], LibStoryURL7: "url", LibEpub7: "old"};
+        let {context} = createLibraryContext(values);
+        let finish;
+        let started = new Promise(resolve => { context.started = resolve; });
+        let reads = [];
+        context.document = {getElementById: () => ({checked: false})};
+        context.merge = async (previous, next) => {
+            reads.push([previous, next]);
+            if (reads.length === 1) {
+                await new Promise(resolve => { finish = resolve; context.started(); });
+            }
+            values.LibEpub7 = previous + "+" + next;
+            return values.LibEpub7;
+        };
+        vm.runInContext(`
+            Library.LibShowLoadingText = () => {};
+            Library.userPreferences = {readingList: {addEpub: () => {}, setEpub: () => {}}};
+            Library.LibMergeEpub = merge;
+            Library.LibGetSourceChapterList = async () => null;
+        `, context);
+        let manual = () => vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["manual"]})', context);
+        let acquisition = () => vm.runInContext('new Library().LibAddToLibrary("acquired", "book.epub", "url", false, false)', context);
+        let first = firstKind === "manual" ? manual() : acquisition();
+        await started;
+        let second = firstKind === "manual" ? acquisition() : manual();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(reads.length, 1);
+        finish();
+        await Promise.all([first, second]);
+        let firstPart = firstKind === "manual" ? "manual" : "acquired";
+        let secondPart = firstKind === "manual" ? "acquired" : "manual";
+        assert.deepEqual(reads, [["old", firstPart], ["old+" + firstPart, secondPart]]);
+        assert.equal(values.LibEpub7, "old+" + firstPart + "+" + secondPart);
+        assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+    });
+}
+
+test("a failed manual merge releases the book queue for a later acquisition", async () => {
+    let values = {LibArray: [7], LibStoryURL7: "url", LibEpub7: "old"};
+    let {context} = createLibraryContext(values);
+    let finish;
+    let started = new Promise(resolve => { context.started = resolve; });
+    context.document = {getElementById: () => ({checked: false})};
+    context.merge = async (previous, next) => {
+        if (next === "manual") {
+            await new Promise(resolve => { finish = resolve; context.started(); });
+            throw new Error("Merge failed");
+        }
+        values.LibEpub7 = previous + "+" + next;
+        return values.LibEpub7;
+    };
+    vm.runInContext(`
+        Library.LibShowLoadingText = () => {};
+        Library.userPreferences = {readingList: {addEpub: () => {}}};
+        Library.LibMergeEpub = merge;
+    `, context);
+    let first = vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["manual"]})', context);
+    await started;
+    let second = vm.runInContext('new Library().LibAddToLibrary("acquired", "book.epub", "url", false, false)', context);
+    finish();
+    await assert.rejects(first, /Merge failed/);
+    await second;
+    assert.equal(values.LibEpub7, "old+acquired");
+    assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+});
+
+test("manual merges of different books proceed independently", async () => {
+    let values = {LibEpub7: "old7", LibEpub8: "old8"};
+    let {context} = createLibraryContext(values);
+    let finish;
+    let started = new Promise(resolve => { context.started = resolve; });
+    context.merge = async (previous, next, id) => {
+        if (id === "7") {
+            await new Promise(resolve => { finish = resolve; context.started(); });
+        }
+        values["LibEpub" + id] = previous + "+" + next;
+    };
+    vm.runInContext('Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null', context);
+    let first = vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["first"]})', context);
+    await started;
+    let second = vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "8"}, files: ["second"]})', context);
+    await second;
+    assert.equal(values.LibEpub8, "old8+second");
+    assert.equal(values.LibEpub7, "old7");
+    finish();
+    await first;
+    assert.equal(values.LibEpub7, "old7+first");
+    assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+});
+
 test("acquisition merge does not update reading state when stored EPUB is missing", async () => {
     let {context} = createLibraryContext({LibArray: [7], LibStoryURL7: "url"});
     let added = 0;

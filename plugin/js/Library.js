@@ -17,14 +17,18 @@ class Library { // eslint-disable-line no-unused-vars
     }
 
     static async LibQueueAcquisition(url, operation) {
-        let previous = Library.acquisitionQueues.get(url) || Promise.resolve();
+        return Library.LibQueueByKey(Library.acquisitionQueues, url, operation);
+    }
+
+    static async LibQueueByKey(queues, key, operation) {
+        let previous = queues.get(key) || Promise.resolve();
         let pending = previous.then(operation, operation);
-        Library.acquisitionQueues.set(url, pending);
+        queues.set(key, pending);
         try {
             return await pending;
         } finally {
-            if (Library.acquisitionQueues.get(url) === pending) {
-                Library.acquisitionQueues.delete(url);
+            if (queues.get(key) === pending) {
+                queues.delete(key);
             }
         }
     }
@@ -51,25 +55,27 @@ class Library { // eslint-disable-line no-unused-vars
             }
         }
 
-        let PreviousEpubBase64 = await Library.LibRequireEpub(LibidURL);
-        let MergedEpub = await Library.LibMergeEpub(PreviousEpubBase64, AddEpub, LibidURL);
-        Library.userPreferences.readingList.addEpub(startingUrlInput);
-        if (document.getElementById("LibDownloadEpubAfterUpdateCheckbox").checked) {
-            fileName = EpubPacker.addExtensionIfMissing(await Library.LibGetFromStorage("LibFilename" + LibidURL));
-            if (Download.isFileNameIllegalOnWindows(fileName)) {
-                ErrorLog.showErrorMessage(UIText.Error.errorIllegalFileName(fileName, Download.illegalWindowsFileNameChars));
-                return;
+        return Library.LibQueueByKey(Library.bookQueues, String(LibidURL), async () => {
+            let PreviousEpubBase64 = await Library.LibRequireEpub(LibidURL);
+            let MergedEpub = await Library.LibMergeEpub(PreviousEpubBase64, AddEpub, LibidURL);
+            Library.userPreferences.readingList.addEpub(startingUrlInput);
+            if (document.getElementById("LibDownloadEpubAfterUpdateCheckbox").checked) {
+                fileName = EpubPacker.addExtensionIfMissing(await Library.LibGetFromStorage("LibFilename" + LibidURL));
+                if (Download.isFileNameIllegalOnWindows(fileName)) {
+                    ErrorLog.showErrorMessage(UIText.Error.errorIllegalFileName(fileName, Download.illegalWindowsFileNameChars));
+                    return;
+                }
+                let download = await Download.save(MergedEpub, fileName.trim(), overwriteExisting, backgroundDownload);
+                try {
+                    await Library.LibSetInStorage({["LibNewChapterCount" + LibidURL]: "-1"});
+                } catch (error) {
+                    throw new Error("The download request returned, but the chapter marker could not be saved: " + error.message);
+                }
+                return download;
+            } else {
+                return new Promise((resolve) => {resolve();});
             }
-            let download = await Download.save(MergedEpub, fileName.trim(), overwriteExisting, backgroundDownload);
-            try {
-                await Library.LibSetInStorage({["LibNewChapterCount" + LibidURL]: "-1"});
-            } catch (error) {
-                throw new Error("The download request returned, but the chapter marker could not be saved: " + error.message);
-            }
-            return download;
-        } else {
-            return new Promise((resolve) => {resolve();});
-        }
+        });
     }
 
     static LibHighestFileNumber(Content, Regex, String) {
@@ -564,15 +570,18 @@ class Library { // eslint-disable-line no-unused-vars
     }
     
     static async LibMergeUpload(objbtn) {
-        let PreviousEpubBase64 = await Library.LibRequireEpub(objbtn.dataset.libepubid);
         let AddEpubBlob = objbtn.files[0];
-        await Library.LibMergeEpub(PreviousEpubBase64, AddEpubBlob, objbtn.dataset.libepubid);
-        let LibStoryURL = await Library.LibGetFromStorage("LibStoryURL" + objbtn.dataset.libepubid);
-        let SourceChapterList = await Library.LibGetSourceChapterList(LibStoryURL);
-        if (SourceChapterList == null) {
-            return;
-        }
-        Library.userPreferences.readingList.setEpub(LibStoryURL, SourceChapterList[SourceChapterList.length-1]);
+        let id = String(objbtn.dataset.libepubid);
+        return Library.LibQueueByKey(Library.bookQueues, id, async () => {
+            let PreviousEpubBase64 = await Library.LibRequireEpub(id);
+            await Library.LibMergeEpub(PreviousEpubBase64, AddEpubBlob, id);
+            let LibStoryURL = await Library.LibGetFromStorage("LibStoryURL" + id);
+            let SourceChapterList = await Library.LibGetSourceChapterList(LibStoryURL);
+            if (SourceChapterList == null) {
+                return;
+            }
+            Library.userPreferences.readingList.setEpub(LibStoryURL, SourceChapterList[SourceChapterList.length-1]);
+        });
     }
     
     static async LibEditMetadata(objbtn) {
@@ -1424,3 +1433,4 @@ class Library { // eslint-disable-line no-unused-vars
 Library.epubStorage = new BrowserEpubStorage();
 Library.updateQueue = Promise.resolve();
 Library.acquisitionQueues = new Map();
+Library.bookQueues = new Map();
