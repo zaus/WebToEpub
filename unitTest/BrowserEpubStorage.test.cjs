@@ -288,13 +288,16 @@ test("acquisition does not advance reading list or download when saving fails", 
 });
 
 for (let format of ["legacy", "zip"]) {
-    test(`${format} import waits for the book write before recording its ID`, async () => {
-        let {context} = createLibraryContext();
+    test(`${format} import writes the book and its ID together`, async () => {
+        let values = {LibArray: [3]};
+        let {context} = createLibraryContext(values);
         let finish;
-        let ids = [];
+        let pendingItems;
         let loadedReadingList = false;
-        context.chrome.storage.local.set = (items, callback) => { finish = callback; };
-        context.recordId = id => { ids.push(id); };
+        context.chrome.storage.local.set = (items, callback) => {
+            pendingItems = items;
+            finish = () => { Object.assign(values, items); callback(); };
+        };
         context.recordReadingList = () => { loadedReadingList = true; };
         context.ProgressBar = {setMax() {}, setValue() {}};
         context.zip = {
@@ -317,8 +320,6 @@ for (let format of ["legacy", "zip"]) {
             }
         };
         vm.runInContext(`
-            Library.LibGetStorageIDs = async () => [];
-            Library.LibCreateStorageIDs = async id => recordId(id);
             Library.LibRenderSavedEpubs = () => {};
             Library.userPreferences = {loadReadingListFromJson: () => recordReadingList()};
             LibFileReader.result = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
@@ -326,23 +327,24 @@ for (let format of ["legacy", "zip"]) {
         let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
         let imported = vm.runInContext(expression, context);
         await new Promise(resolve => setImmediate(resolve));
-        assert.deepEqual(ids, []);
+        assert.deepEqual(values.LibArray, [3]);
+        assert.equal(pendingItems.LibEpub4, "epub");
+        assert.deepEqual(Array.from(pendingItems.LibArray), [3, 4]);
         assert.equal(loadedReadingList, false);
         finish();
         await imported;
-        assert.deepEqual(ids, [0]);
+        assert.deepEqual(Array.from(values.LibArray), [3, 4]);
         assert.equal(loadedReadingList, true);
     });
 
     test(`${format} import does not record an ID when the book write fails`, async () => {
-        let {context, runtime} = createLibraryContext();
-        let ids = [];
+        let values = {LibArray: [3]};
+        let {context, runtime} = createLibraryContext(values);
         context.chrome.storage.local.set = (items, callback) => {
             runtime.lastError = {message: "Import write failed"};
             callback();
             runtime.lastError = null;
         };
-        context.recordId = id => ids.push(id);
         context.ProgressBar = {setMax() {}, setValue() {}};
         context.zip = {
             BlobReader: class {},
@@ -356,15 +358,44 @@ for (let format of ["legacy", "zip"]) {
             }
         };
         vm.runInContext(`
-            Library.LibGetStorageIDs = async () => [];
-            Library.LibCreateStorageIDs = async id => recordId(id);
             LibFileReader.result = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
         `, context);
         let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
         await assert.rejects(vm.runInContext(expression, context), /Import write failed/);
-        assert.deepEqual(ids, []);
+        assert.deepEqual(values.LibArray, [3]);
+        assert.equal(values.LibEpub4, undefined);
     });
 }
+
+test("import and update allocate distinct IDs when they overlap", async () => {
+    let values = {LibArray: []};
+    let {context} = createLibraryContext(values);
+    let finishFirst;
+    let writes = 0;
+    context.FileReader = class {
+        readAsDataURL(blob) { this.result = blob; this.onload(); }
+    };
+    context.chrome.storage.local.set = (items, callback) => {
+        writes++;
+        if (writes === 1) {
+            finishFirst = () => { Object.assign(values, items); callback(); };
+        } else {
+            Object.assign(values, items);
+            callback();
+        }
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibSaveCoverImgInStorage = async () => {}; Library.LibRenderSavedEpubs = async () => {}', context);
+    let imported = vm.runInContext('Library.LibImportBook({epub:"imported", storyURL:"import-url", cover:"cover", filename:"import"})', context);
+    await new Promise(resolve => setImmediate(resolve));
+    let updated = vm.runInContext('Library.LibHandleUpdate(-1, "updated", "update-url", "update", -1)', context);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(writes, 1);
+    finishFirst();
+    await Promise.all([imported, updated]);
+    assert.deepEqual(Array.from(values.LibArray), [0, 1]);
+    assert.equal(values.LibEpub0, "imported");
+    assert.equal(values.LibEpub1, "updated");
+});
 
 test("routes EPUB reads through the configured adapter", async () => {
     let {context, calls} = createLibraryContext();

@@ -851,10 +851,28 @@ class Library { // eslint-disable-line no-unused-vars
             NewChapterCount = 0;
         }
         let result = await Library.LibReadEpubAsDataURL(Blobdata);
-        let update = () => Library.LibFileReaderload(result, StoryURL, Filename, Id, NewChapterCount);
-        let pending = Library.updateQueue.then(update, update);
+        return Library.LibQueueWrite(() => Library.LibFileReaderload(result, StoryURL, Filename, Id, NewChapterCount));
+    }
+
+    static LibQueueWrite(write) {
+        let pending = Library.updateQueue.then(write, write);
         Library.updateQueue = pending;
         return pending;
+    }
+
+    static async LibImportBook(book) {
+        return Library.LibQueueWrite(async () => {
+            let ids = await Library.LibGetStorageIDs();
+            let id = ids.reduce((highest, current) => Math.max(highest, parseInt(current) + 1), 0);
+            await Library.LibSetInStorage({
+                ["LibEpub" + id]: book.epub,
+                ["LibStoryURL" + id]: book.storyURL,
+                ["LibCover" + id]: book.cover,
+                ["LibFilename" + id]: book.filename,
+                ...(book.newChapterCount == null ? {} : {["LibNewChapterCount" + id]: book.newChapterCount}),
+                ["LibArray"]: [...ids, id]
+            });
+        });
     }
 
     static async LibFileReaderload(result, StoryURL, Filename, Id, NewChapterCount) {
@@ -1166,13 +1184,6 @@ class Library { // eslint-disable-line no-unused-vars
     }
 
     static async LibFileReaderloadImport(Blobdata) {
-        let CurrentLibStoryIds = await Library.LibGetStorageIDs();
-        let HighestLibEpub = 0;
-        CurrentLibStoryIds.forEach(element => {
-            if (parseInt(element)>=HighestLibEpub) {
-                HighestLibEpub = parseInt(element)+1; 
-            }
-        });
         let zipFileReader = new zip.BlobReader(Blobdata);
         let zipReader = new zip.ZipReader(zipFileReader, {useWebWorkers: false});
         let entries = await zipReader.getEntries();
@@ -1187,15 +1198,13 @@ class Library { // eslint-disable-line no-unused-vars
         ProgressBar.setMax(LibCountEntries);
         for (let i = 0; i < LibCountEntries; i++) {
             ProgressBar.setValue(i);
-            await Library.LibSetInStorage({
-                ["LibCover" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibCover")[0]).getData(new zip.TextWriter()),
-                ["LibEpub" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibEpub")[0]).getData(new zip.TextWriter()),
-                ["LibFilename" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibFilename")[0]).getData(new zip.TextWriter()),
-                ["LibStoryURL" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibStoryURL")[0]).getData(new zip.TextWriter()),
-                ["LibNewChapterCount" + HighestLibEpub]: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibNewChapterCount")[0])?.getData(new zip.TextWriter())??"0"
+            await Library.LibImportBook({
+                cover: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibCover")[0]).getData(new zip.TextWriter()),
+                epub: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibEpub")[0]).getData(new zip.TextWriter()),
+                filename: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibFilename")[0]).getData(new zip.TextWriter()),
+                storyURL: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibStoryURL")[0]).getData(new zip.TextWriter()),
+                newChapterCount: await (await entries.filter((a) => a.filename == "Library/"+i+"/LibNewChapterCount")[0])?.getData(new zip.TextWriter())??"0"
             });
-            await Library.LibCreateStorageIDs(HighestLibEpub);
-            HighestLibEpub++;
         }
         ProgressBar.setValue(LibCountEntries);
         Library.userPreferences.loadReadingListFromJson(JSON.parse( await (await entries.filter((a) => a.filename == "ReadingList.json")[0]).getData(new zip.TextWriter())));
@@ -1208,22 +1217,13 @@ class Library { // eslint-disable-line no-unused-vars
 
     static async LibFileReaderloadImportLegacy() {
         let json = JSON.parse(LibFileReader.result);
-        let CurrentLibStoryIds = await Library.LibGetStorageIDs();
-        let HighestLibEpub = 0;
-        CurrentLibStoryIds.forEach(element => {
-            if (parseInt(element)>=HighestLibEpub) {
-                HighestLibEpub = parseInt(element)+1; 
-            }
-        });
         for (let i = 0; i < json.Library.length; i++) {
-            await Library.LibSetInStorage({
-                ["LibEpub" + HighestLibEpub]: json.Library[i].LibEpub,
-                ["LibStoryURL" + HighestLibEpub]: json.Library[i].LibStoryURL,
-                ["LibCover" + HighestLibEpub]: json.Library[i].LibCover,
-                ["LibFilename" + HighestLibEpub]: json.Library[i].LibFilename
+            await Library.LibImportBook({
+                epub: json.Library[i].LibEpub,
+                storyURL: json.Library[i].LibStoryURL,
+                cover: json.Library[i].LibCover,
+                filename: json.Library[i].LibFilename
             });
-            await Library.LibCreateStorageIDs(HighestLibEpub);
-            HighestLibEpub++;
         }
         Library.userPreferences.loadReadingListFromJson(json);
         Library.LibRenderSavedEpubs();
