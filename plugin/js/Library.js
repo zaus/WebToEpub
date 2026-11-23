@@ -3,8 +3,6 @@
 */
 "use strict";
 
-var LibFileReader = new FileReader();
-
 class Library { // eslint-disable-line no-unused-vars
     constructor() {
     }
@@ -975,9 +973,6 @@ class Library { // eslint-disable-line no-unused-vars
         return retblob;
     }
 
-    static LibFileReadererror(event) {ErrorLog.showErrorMessage(event.currentTarget.error.message);}
-    static LibFileReaderabort(event) {ErrorLog.showErrorMessage(event.currentTarget.error.message);}
-    
     static async LibDeleteEpub(objbtn) {
         await Library.LibRemoveStorageIDs(objbtn.dataset.libepubid);
         let LibRemove = ["LibEpub" + objbtn.dataset.libepubid, "LibStoryURL" + objbtn.dataset.libepubid, "LibFilename" + objbtn.dataset.libepubid, "LibCover" + objbtn.dataset.libepubid, "LibNewChapterCount" + objbtn.dataset.libepubid];
@@ -1165,22 +1160,19 @@ class Library { // eslint-disable-line no-unused-vars
     static async LibHandelImport(objbtn) {
         Library.LibShowLoadingText();
         let Blobdata = objbtn.files[0];
-        LibFileReader.name = objbtn.files[0].name;
         let regex = new RegExp("zip$");
-        if (!regex.test(LibFileReader.name)) {
-            Library.LibFileReaderAddListenersImport();
-            LibFileReader.readAsText(Blobdata);
+        if (!regex.test(Blobdata.name)) {
+            let text = await new Promise((resolve, reject) => {
+                let reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error);
+                reader.onabort = () => reject(new Error("Library import reading was aborted."));
+                reader.readAsText(Blobdata);
+            });
+            await Library.LibFileReaderloadImportLegacy(text);
         } else {
             await Library.LibFileReaderloadImport(Blobdata);
         }
-    }
-
-    static LibFileReaderAddListenersImport() {
-        LibFileReader.removeEventListener("error", function(event) {Library.LibFileReadererror(event);});
-        LibFileReader.removeEventListener("abort", function(event) {Library.LibFileReaderabort(event);});
-        LibFileReader.addEventListener("load", Library.LibFileReaderloadImportLegacyWithErrorHandling);
-        LibFileReader.addEventListener("error", function(event) {Library.LibFileReadererror(event);});
-        LibFileReader.addEventListener("abort", function(event) {Library.LibFileReaderabort(event);});
     }
 
     static async LibFileReaderloadImport(Blobdata) {
@@ -1219,12 +1211,8 @@ class Library { // eslint-disable-line no-unused-vars
         }
     }
 
-    static LibFileReaderloadImportLegacyWithErrorHandling() {
-        Library.LibFileReaderloadImportLegacy().catch(err => ErrorLog.showErrorMessage(err));
-    }
-
-    static async LibFileReaderloadImportLegacy() {
-        let json = JSON.parse(LibFileReader.result);
+    static async LibFileReaderloadImportLegacy(text) {
+        let json = JSON.parse(text);
         for (let i = 0; i < json.Library.length; i++) {
             try {
                 await Library.LibImportBook({

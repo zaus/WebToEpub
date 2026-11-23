@@ -322,9 +322,9 @@ for (let format of ["legacy", "zip"]) {
         vm.runInContext(`
             Library.LibRenderSavedEpubs = () => {};
             Library.userPreferences = {loadReadingListFromJson: () => recordReadingList()};
-            LibFileReader.result = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
+            legacyImport = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
         `, context);
-        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy(legacyImport)";
         let imported = vm.runInContext(expression, context);
         await new Promise(resolve => setImmediate(resolve));
         assert.deepEqual(values.LibArray, [3]);
@@ -358,9 +358,9 @@ for (let format of ["legacy", "zip"]) {
             }
         };
         vm.runInContext(`
-            LibFileReader.result = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
+            legacyImport = JSON.stringify({Library: [{LibEpub: "epub", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
         `, context);
-        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy(legacyImport)";
         await assert.rejects(vm.runInContext(expression, context), /Import write failed/);
         assert.deepEqual(values.LibArray, [3]);
         assert.equal(values.LibEpub4, undefined);
@@ -401,12 +401,12 @@ for (let format of ["legacy", "zip"]) {
         };
         vm.runInContext(`
             Library.userPreferences = {loadReadingListFromJson: () => markLoaded()};
-            LibFileReader.result = JSON.stringify({Library: [
+            legacyImport = JSON.stringify({Library: [
                 {LibEpub: "book0", LibStoryURL: "url0", LibCover: "cover0", LibFilename: "title0"},
                 {LibEpub: "book1", LibStoryURL: "url1", LibCover: "cover1", LibFilename: "title1"}
             ]});
         `, context);
-        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy(legacyImport)";
         await assert.rejects(vm.runInContext(expression, context), /1 book\(s\) were already imported.*duplicates.*Storage quota exceeded/);
         assert.deepEqual(Array.from(values.LibArray), [0]);
         assert.equal(values.LibEpub0, format === "zip" ? "LibEpub0" : "book0");
@@ -434,13 +434,62 @@ for (let format of ["legacy", "zip"]) {
         };
         vm.runInContext(`
             Library.userPreferences = {loadReadingListFromJson: () => { throw new Error("Reading list failed"); }};
-            LibFileReader.result = JSON.stringify({Library: [{LibEpub: "book", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
+            legacyImport = JSON.stringify({Library: [{LibEpub: "book", LibStoryURL: "url", LibCover: "cover", LibFilename: "title"}]});
         `, context);
-        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy()";
+        let expression = format === "zip" ? 'Library.LibFileReaderloadImport("zip")' : "Library.LibFileReaderloadImportLegacy(legacyImport)";
         await assert.rejects(vm.runInContext(expression, context), /1 book\(s\) were already imported.*duplicates.*Reading list failed/);
         assert.deepEqual(Array.from(values.LibArray), [0]);
     });
 }
+
+test("legacy import readers are isolated and await import completion", async () => {
+    let {context} = createLibraryContext();
+    let readers = [];
+    let imported = [];
+    let finishImport;
+    context.FileReader = class {
+        constructor() { readers.push(this); }
+        readAsText(blob) { this.blob = blob; }
+    };
+    context.importText = async text => {
+        imported.push(text);
+        if (text === "first") {
+            await new Promise(resolve => { finishImport = resolve; });
+        }
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibFileReaderloadImportLegacy = text => importText(text)', context);
+    let first = vm.runInContext('Library.LibHandelImport({files: [{name:"one.json"}]})', context);
+    let second = vm.runInContext('Library.LibHandelImport({files: [{name:"two.json"}]})', context);
+    readers[1].result = "second";
+    readers[1].onload();
+    readers[0].result = "first";
+    readers[0].onload();
+    let completed = false;
+    first.then(() => { completed = true; });
+    await second;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(imported, ["second", "first"]);
+    assert.equal(completed, false);
+    finishImport();
+    await first;
+});
+
+test("legacy import read errors and aborts propagate", async () => {
+    let {context} = createLibraryContext();
+    let readers = [];
+    context.FileReader = class {
+        constructor() { readers.push(this); }
+        readAsText() {}
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}', context);
+    let failed = vm.runInContext('Library.LibHandelImport({files: [{name:"one.json"}]})', context);
+    readers[0].error = new Error("Read failed");
+    readers[0].onerror();
+    await assert.rejects(failed, /Read failed/);
+    let aborted = vm.runInContext('Library.LibHandelImport({files: [{name:"two.json"}]})', context);
+    readers[1].onabort();
+    await assert.rejects(aborted, /aborted/);
+});
 
 test("import and update allocate distinct IDs when they overlap", async () => {
     let values = {LibArray: []};
