@@ -46,6 +46,35 @@ test("propagates EPUB storage errors", async () => {
     await assert.rejects(vm.runInContext('Library.LibGetFromStorage("LibEpub7")', context), /Storage unavailable/);
 });
 
+test("writes EPUB data to browser storage and waits for completion", async () => {
+    let {context} = createLibraryContext();
+    let saved;
+    let finish;
+    context.chrome.storage.local.set = (value, callback) => {
+        saved = value;
+        finish = callback;
+    };
+    let completed = false;
+    let write = vm.runInContext('Library.epubStorage.set("7", "data:application/epub+zip;base64,YQ==")', context);
+    write.then(() => { completed = true; });
+    await Promise.resolve();
+    assert.equal(completed, false);
+    assert.deepEqual(Object.entries(saved), [["LibEpub7", "data:application/epub+zip;base64,YQ=="]]);
+    finish();
+    await write;
+    assert.equal(completed, true);
+});
+
+test("propagates browser EPUB write failures", async () => {
+    let {context, runtime} = createLibraryContext();
+    context.chrome.storage.local.set = (value, callback) => {
+        runtime.lastError = {message: "Storage quota exceeded"};
+        callback();
+        runtime.lastError = null;
+    };
+    await assert.rejects(vm.runInContext('Library.epubStorage.set("7", "data")', context), /Storage quota exceeded/);
+});
+
 test("routes EPUB reads through the configured adapter", async () => {
     let {context, calls} = createLibraryContext();
     vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);

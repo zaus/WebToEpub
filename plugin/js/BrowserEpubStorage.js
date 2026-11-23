@@ -13,4 +13,17 @@ class BrowserEpubStorage { // eslint-disable-line no-unused-vars
             });
         });
     }
+
+    async set(id, epub) {
+        let key = "LibEpub" + id;
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.set({[key]: epub}, () => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve();
+            });
+        });
+    }
 }
