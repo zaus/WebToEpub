@@ -294,9 +294,7 @@ class Library { // eslint-disable-line no-unused-vars
             }
             LibArray.push(AppendID);
         }
-        chrome.storage.local.set({
-            ["LibArray"]: LibArray
-        });
+        await Library.LibSetInStorage({["LibArray"]: LibArray});
     }
 
     static async LibRemoveStorageIDs(RemoveID) {
@@ -468,7 +466,7 @@ class Library { // eslint-disable-line no-unused-vars
                 document.getElementById("libexportall").addEventListener("click", function() {Library.Libexportall();});
                 document.getElementById("LibImportLibraryLabel").addEventListener("mouseover", function() {Library.LibMouseoverButtonUpload(this);});
                 document.getElementById("LibImportLibraryLabel").addEventListener("mouseout", function() {Library.LibMouseoutButtonUpload(this);});
-                document.getElementById("LibImportLibraryFile").addEventListener("change", function() {Library.LibHandelImport(this);});
+                document.getElementById("LibImportLibraryFile").addEventListener("change", function() {Library.LibHandelImport(this).catch(err => ErrorLog.showErrorMessage(err));});
                 document.getElementById("LibUploadEpubLabel").addEventListener("mouseover", function() {Library.LibMouseoverButtonUpload(this);});
                 document.getElementById("LibUploadEpubLabel").addEventListener("mouseout", function() {Library.LibMouseoutButtonUpload(this);});
                 document.getElementById("LibEpubNewUploadFile").addEventListener("change", function() {Library.LibHandleUpdate(this, -1, "", "", -1);});
@@ -881,7 +879,12 @@ class Library { // eslint-disable-line no-unused-vars
             ["LibFilename" + LibFileReader.LibStorageValueId]: LibFileReader.LibStorageValueFilename,
             ["LibNewChapterCount" + LibFileReader.LibStorageValueId]: NewChapterCount
         }, async function() {
-            await Library.LibCreateStorageIDs(parseInt(LibFileReader.LibStorageValueId));
+            try {
+                await Library.LibCreateStorageIDs(parseInt(LibFileReader.LibStorageValueId));
+            } catch (error) {
+                ErrorLog.showErrorMessage(error);
+                return;
+            }
             try {
                 await Library.LibSaveCoverImgInStorage(LibFileReader.LibStorageValueId);
             } catch (error) {
@@ -943,7 +946,7 @@ class Library { // eslint-disable-line no-unused-vars
     }
 
     static LibFileReaderAddListeners() {
-        LibFileReader.removeEventListener("load", Library.LibFileReaderloadImport);
+        LibFileReader.removeEventListener("load", Library.LibFileReaderloadImportLegacyWithErrorHandling);
         LibFileReader.removeEventListener("error", function(event) {Library.LibFileReadererror(event);});
         LibFileReader.removeEventListener("abort", function(event) {Library.LibFileReaderabort(event);});
         LibFileReader.addEventListener("load", Library.LibFileReaderload);
@@ -1141,7 +1144,7 @@ class Library { // eslint-disable-line no-unused-vars
             Library.LibFileReaderAddListenersImport();
             LibFileReader.readAsText(Blobdata);
         } else {
-            Library.LibFileReaderloadImport(Blobdata);
+            await Library.LibFileReaderloadImport(Blobdata);
         }
     }
 
@@ -1149,7 +1152,7 @@ class Library { // eslint-disable-line no-unused-vars
         LibFileReader.removeEventListener("load", Library.LibFileReaderload);
         LibFileReader.removeEventListener("error", function(event) {Library.LibFileReadererror(event);});
         LibFileReader.removeEventListener("abort", function(event) {Library.LibFileReaderabort(event);});
-        LibFileReader.addEventListener("load", Library.LibFileReaderloadImportLegacy);
+        LibFileReader.addEventListener("load", Library.LibFileReaderloadImportLegacyWithErrorHandling);
         LibFileReader.addEventListener("error", function(event) {Library.LibFileReadererror(event);});
         LibFileReader.addEventListener("abort", function(event) {Library.LibFileReaderabort(event);});
     }
@@ -1189,6 +1192,10 @@ class Library { // eslint-disable-line no-unused-vars
         ProgressBar.setValue(LibCountEntries);
         Library.userPreferences.loadReadingListFromJson(JSON.parse( await (await entries.filter((a) => a.filename == "ReadingList.json")[0]).getData(new zip.TextWriter())));
         Library.LibRenderSavedEpubs();
+    }
+
+    static LibFileReaderloadImportLegacyWithErrorHandling() {
+        Library.LibFileReaderloadImportLegacy().catch(err => ErrorLog.showErrorMessage(err));
     }
 
     static async LibFileReaderloadImportLegacy() {
@@ -1261,6 +1268,18 @@ class Library { // eslint-disable-line no-unused-vars
         return new Promise((resolve) => {
             chrome.storage.local.get(Keys, function(items) {
                 resolve(items);
+            });
+        });
+    }
+
+    static async LibSetInStorage(items) {
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.set(items, () => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve();
             });
         });
     }

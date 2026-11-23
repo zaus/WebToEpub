@@ -75,6 +75,35 @@ test("propagates browser EPUB write failures", async () => {
     await assert.rejects(vm.runInContext('Library.epubStorage.set("7", "data")', context), /Storage quota exceeded/);
 });
 
+test("library ID creation waits for storage completion", async () => {
+    let {context} = createLibraryContext({LibArray: [3]});
+    let saved;
+    let finish;
+    context.chrome.storage.local.set = (value, callback) => {
+        saved = value;
+        finish = callback;
+    };
+    let completed = false;
+    let write = vm.runInContext("Library.LibCreateStorageIDs(7)", context);
+    write.then(() => { completed = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(completed, false);
+    assert.deepEqual(Array.from(saved.LibArray), [3, 7]);
+    finish();
+    await write;
+    assert.equal(completed, true);
+});
+
+test("library ID creation propagates storage write failures", async () => {
+    let {context, runtime} = createLibraryContext({LibArray: []});
+    context.chrome.storage.local.set = (value, callback) => {
+        runtime.lastError = {message: "ID write failed"};
+        callback();
+        runtime.lastError = null;
+    };
+    await assert.rejects(vm.runInContext("Library.LibCreateStorageIDs(7)", context), /ID write failed/);
+});
+
 test("routes EPUB reads through the configured adapter", async () => {
     let {context, calls} = createLibraryContext();
     vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
