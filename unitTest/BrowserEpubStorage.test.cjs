@@ -681,6 +681,66 @@ test("acquisition merge does not update reading state when stored EPUB is missin
     assert.equal(added, 0);
 });
 
+test("overlapping acquisitions of one URL create one book and merge against the saved EPUB", async () => {
+    let values = {LibArray: []};
+    let {context} = createLibraryContext(values);
+    let finish;
+    let started = new Promise(resolve => { context.started = resolve; });
+    context.document = {getElementById: () => ({value: "changed-ui-value", checked: false})};
+    context.saveFirst = (epub, url) => new Promise(resolve => {
+        finish = () => {
+            Object.assign(values, {LibArray: [0], LibStoryURL0: url, LibEpub0: epub});
+            resolve();
+        };
+        context.started();
+    });
+    context.merge = async (previous, next) => {
+        values.LibEpub0 = previous + "+" + next;
+        return values.LibEpub0;
+    };
+    vm.runInContext(`
+        Library.userPreferences = {readingList: {addEpub: () => {}}};
+        Library.LibShowLoadingText = () => {};
+        Library.LibHandleUpdate = async (button, epub, url) => saveFirst(epub, url);
+        Library.LibMergeEpub = merge;
+    `, context);
+    let first = vm.runInContext('new Library().LibAddToLibrary("first", "book.epub", "url", false, false)', context);
+    await started;
+    let second = vm.runInContext('new Library().LibAddToLibrary("second", "book.epub", "url", false, false)', context);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(values.LibArray, []);
+    finish();
+    await Promise.all([first, second]);
+    assert.deepEqual(values.LibArray, [0]);
+    assert.equal(values.LibStoryURL0, "url");
+    assert.equal(values.LibEpub0, "first+second");
+    assert.equal(vm.runInContext("Library.acquisitionQueues.size", context), 0);
+});
+
+test("failed acquisition does not block the next operation for the same URL", async () => {
+    let {context} = createLibraryContext();
+    let release;
+    context.gate = new Promise(resolve => { release = resolve; });
+    let first = vm.runInContext('Library.LibQueueAcquisition("url", async () => { await gate; throw new Error("failed"); })', context);
+    let second = vm.runInContext('Library.LibQueueAcquisition("url", async () => "retried")', context);
+    release();
+    await assert.rejects(first, /failed/);
+    assert.equal(await second, "retried");
+    assert.equal(vm.runInContext("Library.acquisitionQueues.size", context), 0);
+});
+
+test("acquisitions for different URLs can proceed independently", async () => {
+    let {context} = createLibraryContext();
+    let release;
+    context.gate = new Promise(resolve => { release = resolve; });
+    let first = vm.runInContext('Library.LibQueueAcquisition("first", () => gate)', context);
+    let second = vm.runInContext('Library.LibQueueAcquisition("second", async () => "completed")', context);
+    assert.equal(await second, "completed");
+    release("done");
+    assert.equal(await first, "done");
+    assert.equal(vm.runInContext("Library.acquisitionQueues.size", context), 0);
+});
+
 function setupMergedDownload(context) {
     context.document = {getElementById: () => ({value: "url", checked: true})};
     context.EpubPacker = {addExtensionIfMissing: name => name + ".epub"};
@@ -691,6 +751,31 @@ function setupMergedDownload(context) {
         Library.LibMergeEpub = async () => "merged";
     `, context);
 }
+
+test("same-book acquisition waits for the prior download and chapter marker", async () => {
+    let values = {LibArray: [7], LibStoryURL7: "url", LibFilename7: "title", LibEpub7: "existing"};
+    let {context} = createLibraryContext(values);
+    setupMergedDownload(context);
+    let finishDownload;
+    let downloads = 0;
+    context.Download.save = () => {
+        downloads++;
+        if (downloads === 1) {
+            return new Promise(resolve => { finishDownload = resolve; });
+        }
+        return Promise.resolve();
+    };
+    context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+    let first = vm.runInContext('new Library().LibAddToLibrary("first", "book.epub", "url", false, false)', context);
+    await new Promise(resolve => setImmediate(resolve));
+    let second = vm.runInContext('new Library().LibAddToLibrary("second", "book.epub", "url", false, false)', context);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(downloads, 1);
+    finishDownload();
+    await Promise.all([first, second]);
+    assert.equal(downloads, 2);
+    assert.equal(values.LibNewChapterCount7, "-1");
+});
 
 test("merged download preserves the chapter marker on download failure", async () => {
     let values = {LibArray: [7], LibStoryURL7: "url", LibFilename7: "title", LibEpub7: "existing", LibNewChapterCount7: 4};

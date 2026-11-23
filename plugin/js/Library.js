@@ -12,6 +12,24 @@ class Library { // eslint-disable-line no-unused-vars
     }
     
     async LibAddToLibrary(AddEpub, fileName, startingUrlInput, overwriteExisting, backgroundDownload) {
+        return Library.LibQueueAcquisition(startingUrlInput, () =>
+            this.LibAddToLibraryQueued(AddEpub, fileName, startingUrlInput, overwriteExisting, backgroundDownload));
+    }
+
+    static async LibQueueAcquisition(url, operation) {
+        let previous = Library.acquisitionQueues.get(url) || Promise.resolve();
+        let pending = previous.then(operation, operation);
+        Library.acquisitionQueues.set(url, pending);
+        try {
+            return await pending;
+        } finally {
+            if (Library.acquisitionQueues.get(url) === pending) {
+                Library.acquisitionQueues.delete(url);
+            }
+        }
+    }
+
+    async LibAddToLibraryQueued(AddEpub, fileName, startingUrlInput, overwriteExisting, backgroundDownload) {
         Library.LibShowLoadingText();
         let CurrentLibStoryIds = await Library.LibGetStorageIDsForWrite();
         let CurrentLibStoryURLKeys = CurrentLibStoryIds.map(a => "LibStoryURL" + a);
@@ -24,7 +42,7 @@ class Library { // eslint-disable-line no-unused-vars
             }
         }
         if (LibidURL == -1) {
-            await Library.LibHandleUpdate(-1, AddEpub, document.getElementById("startingUrlInput").value, fileName.replace(".epub", ""), LibidURL);
+            await Library.LibHandleUpdate(-1, AddEpub, startingUrlInput, fileName.replace(".epub", ""), LibidURL);
             Library.userPreferences.readingList.addEpub(startingUrlInput);
             if (document.getElementById("LibDownloadEpubAfterUpdateCheckbox").checked) {
                 return Download.save(AddEpub, fileName.trim(), overwriteExisting, backgroundDownload);
@@ -1389,3 +1407,4 @@ class Library { // eslint-disable-line no-unused-vars
 
 Library.epubStorage = new BrowserEpubStorage();
 Library.updateQueue = Promise.resolve();
+Library.acquisitionQueues = new Map();
