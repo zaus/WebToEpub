@@ -12,7 +12,8 @@ function createContext(initial = {}) {
     let context = vm.createContext({
         window: {localStorage: {
             getItem: key => values.has(key) ? values.get(key) : null,
-            setItem: (key, value) => values.set(key, String(value))
+            setItem: (key, value) => values.set(key, String(value)),
+            removeItem: key => values.delete(key)
         }},
         document: {getElementById: id => id === "themeColorTag"
             ? {addEventListener() {}}
@@ -47,4 +48,64 @@ test("changing the checkbox persists the chosen full-title setting", () => {
     vm.runInContext("preferences.useFullTitle.readFromUi(); preferences.useFullTitle.writeToLocalStorage()", context);
     assert.equal(values.get("useFullTitle"), "false");
     assert.equal(vm.runInContext("UserPreferences.readFromLocalStorage().useFullTitle.value", context), false);
+});
+
+test("options export is JSON and imports preserve settings from JSON and legacy text files", async () => {
+    let {context, values} = createContext();
+    let saved;
+    let errors = [];
+    context.Blob = Blob;
+    context.DefaultParserSiteSettings = {storageName: "siteSettings"};
+    context.ErrorLog = {showErrorMessage: error => errors.push(error)};
+    context.Download = {save: async (blob, name) => { saved = {blob, name}; }};
+    context.FileReader = class {
+        readAsText(file) {
+            file.text().then(content => this.onload({target: {result: content}}));
+        }
+    };
+    vm.runInContext(`
+        ReadingList.storageName = "readingList";
+        ReadingList.prototype.toJson = () => JSON.stringify({epubs: []});
+        ReadingList.prototype.setEpub = () => {};
+        var preferences = UserPreferences.readFromLocalStorage();
+        preferences.useFullTitle.value = false;
+        preferences.noDownloadPopup.value = true;
+    `, context);
+    await vm.runInContext("preferences.writeToFile()", context);
+    assert.equal(saved.name, "Options.json");
+    assert.equal(saved.blob.type, "application/json");
+    let serialized = await saved.blob.text();
+    assert.equal(JSON.parse(serialized).useFullTitle, false);
+    assert.equal(JSON.parse(serialized).noDownloadPopup, true);
+
+    for (let name of ["Options.json", "Options.txt"]) {
+        vm.runInContext("preferences.useFullTitle.value = true; preferences.noDownloadPopup.value = false", context);
+        let file = Object.assign(new Blob([serialized], {type: name.endsWith(".json") ? "application/json" : "text/plain"}), {name});
+        let event = {target: {files: [file], value: name}};
+        await new Promise(resolve => {
+            context.event = event;
+            context.populateControls = resolve;
+            vm.runInContext("preferences.readFromFile(event, populateControls)", context);
+        });
+        assert.equal(vm.runInContext("preferences.useFullTitle.value", context), false);
+        assert.equal(vm.runInContext("preferences.noDownloadPopup.value", context), true);
+        assert.equal(values.get("useFullTitle"), "false");
+        assert.equal(event.target.value, null);
+    }
+    assert.deepEqual(errors, []);
+});
+
+test("invalid options JSON reports an error without changing saved preferences", async () => {
+    let {context, values} = createContext({useFullTitle: "false"});
+    let reported;
+    context.FileReader = class {
+        readAsText() { this.onload({target: {result: "{invalid"}}); }
+    };
+    context.ErrorLog = {showErrorMessage: error => { reported = error; }};
+    context.populateControls = () => { throw new Error("Controls must not be updated"); };
+    context.event = {target: {files: [{name: "Options.txt"}], value: "Options.txt"}};
+    vm.runInContext("var preferences = UserPreferences.readFromLocalStorage(); preferences.readFromFile(event, populateControls)", context);
+    assert.equal(reported.name, "SyntaxError");
+    assert.equal(values.get("useFullTitle"), "false");
+    assert.equal(context.event.target.value, null);
 });

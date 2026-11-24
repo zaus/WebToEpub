@@ -212,7 +212,7 @@ class UserPreferences { // eslint-disable-line no-unused-vars
             obj[p.storageName] = p.value; 
         }
         serialized = JSON.stringify(obj);
-        let blob = new Blob([serialized], {type : "text"});
+        let blob = new Blob([serialized], {type : "application/json"});
         return Download.save(blob, "Options.json")
             .catch (err => ErrorLog.showErrorMessage(err));
     }
