@@ -118,7 +118,7 @@ class UserPreferences { // eslint-disable-line no-unused-vars
         this.compressImagesMaxResolution = this.addPreference("compressImagesMaxResolution", "compressImagesMaxResolutionTag", "1080");
         this.overwriteExistingEpub = this.addPreference("overwriteExistingEpub", "overwriteEpubWhenDuplicateFilenameCheckbox", false);
         this.themeColor = this.addPreference("themeColor", "themeColorTag", "");
-        this.useFullTitle = this.addPreference("useFullTitle", "useFullTitleAsFileNameCheckbox", false);
+        this.useFullTitle = this.addPreference("useFullTitle", "useFullTitleAsFileNameCheckbox", true);
         this.removeIllegalCharacterFromFilenameOnDownload = this.addPreference("removeIllegalCharacterFromFilenameOnDownload", "removeIllegalCharacterFromFilenameOnDownloadCheckbox", false);
         this.addInformationPage = this.addPreference("addInformationPage", "addInformationPageToEpubCheckbox", true);
         this.lesstags = this.addPreference("lesstags", "lesstagsCheckbox", true);
