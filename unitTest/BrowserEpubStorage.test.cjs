@@ -1072,6 +1072,108 @@ test("library download waits for the chapter marker to be cleared", async () => 
     assert.equal(count.innerHTML, "");
 });
 
+for (let [firstKind, mergeKind] of [
+    ["download", "manual"], ["merge", "manual"],
+    ["download", "acquisition"], ["merge", "acquisition"]
+]) {
+    test(`library download and ${mergeKind} merge serialize when ${firstKind} starts first`, async () => {
+        let values = {LibArray: [7], LibEpub7: "old", LibFilename7: "Title", LibStoryURL7: "url", LibNewChapterCount7: "2"};
+        let {context} = createLibraryContext(values);
+        let release;
+        let started = new Promise(resolve => { context.started = resolve; });
+        let events = [];
+        context.document = {getElementById: () => ({innerHTML: "", checked: false})};
+        context.UserPreferences = {readFromLocalStorage: () => ({
+            overwriteExistingEpub: {value: false}, noDownloadPopup: {value: false}
+        })};
+        context.chrome.storage.local.remove = (keys, callback) => {
+            events.push("clear");
+            delete values[keys[0]];
+            callback();
+        };
+        context.Download = {save: async blob => {
+            events.push("download:" + blob);
+            if (firstKind === "download") {
+                await new Promise(resolve => { release = resolve; context.started(); });
+            }
+        }};
+        context.merge = async previous => {
+            events.push("merge:" + previous);
+            if (firstKind === "merge") {
+                await new Promise(resolve => { release = resolve; context.started(); });
+            }
+            values.LibEpub7 = previous + "+new";
+            values.LibNewChapterCount7 = "3";
+        };
+        vm.runInContext('Library.LibConvertDataUrlToBlob = async value => value; Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null; Library.LibShowLoadingText = () => {}; Library.userPreferences = {readingList: {addEpub: () => {}}}', context);
+        let download = () => vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context);
+        let merge = () => mergeKind === "manual"
+            ? vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context)
+            : vm.runInContext('new Library().LibAddToLibrary("new", "book.epub", "url", false, false)', context);
+        let first = firstKind === "download" ? download() : merge();
+        await started;
+        let second = firstKind === "download" ? merge() : download();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(events, [firstKind === "download" ? "download:old" : "merge:old"]);
+        release();
+        await Promise.all([first, second]);
+        if (firstKind === "download") {
+            assert.deepEqual(events, ["download:old", "clear", "merge:old"]);
+            assert.equal(values.LibNewChapterCount7, "3");
+        } else {
+            assert.deepEqual(events, ["merge:old", "download:old+new", "clear"]);
+            assert.equal(values.LibNewChapterCount7, undefined);
+        }
+        assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+    });
+}
+
+test("a failed download releases the book queue for a later merge", async () => {
+    let values = {LibEpub7: "old", LibFilename7: "Title", LibStoryURL7: "url"};
+    let {context} = createLibraryContext(values);
+    let release;
+    let started = new Promise(resolve => { context.started = resolve; });
+    context.UserPreferences = {readFromLocalStorage: () => ({
+        overwriteExistingEpub: {value: false}, noDownloadPopup: {value: false}
+    })};
+    context.Download = {save: async () => {
+        await new Promise(resolve => { release = resolve; context.started(); });
+        throw new Error("Download failed");
+    }};
+    context.merge = async previous => { values.LibEpub7 = previous + "+new"; };
+    vm.runInContext('Library.LibConvertDataUrlToBlob = async value => value; Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null', context);
+    let download = vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context);
+    await started;
+    let merge = vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context);
+    release();
+    await assert.rejects(download, /Download failed/);
+    await merge;
+    assert.equal(values.LibEpub7, "old+new");
+    assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+});
+
+test("a pending download does not block a merge of a different book", async () => {
+    let values = {LibEpub7: "old7", LibFilename7: "Title", LibEpub8: "old8", LibStoryURL8: "url"};
+    let {context} = createLibraryContext(values);
+    let release;
+    let started = new Promise(resolve => { context.started = resolve; });
+    context.document = {getElementById: () => ({innerHTML: ""})};
+    context.UserPreferences = {readFromLocalStorage: () => ({
+        overwriteExistingEpub: {value: false}, noDownloadPopup: {value: false}
+    })};
+    context.chrome.storage.local.remove = (keys, callback) => callback();
+    context.Download = {save: async () => new Promise(resolve => { release = resolve; context.started(); })};
+    context.merge = async previous => { values.LibEpub8 = previous + "+new"; };
+    vm.runInContext('Library.LibConvertDataUrlToBlob = async value => value; Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null', context);
+    let download = vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context);
+    await started;
+    await vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "8"}, files: ["new"]})', context);
+    assert.equal(values.LibEpub8, "old8+new");
+    release();
+    await download;
+    assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+});
+
 test("library download reports marker removal failure and keeps the displayed count", async () => {
     let {context, runtime} = createLibraryContext({LibFilename7: "Title"});
     let count = {innerHTML: "2"};

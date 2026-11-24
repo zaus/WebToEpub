@@ -1041,7 +1041,11 @@ class Library { // eslint-disable-line no-unused-vars
     }
 
     static async LibDownload(objbtn) {
-        let id = objbtn.dataset.libepubid;
+        let id = String(objbtn.dataset.libepubid);
+        return Library.LibQueueByKey(Library.bookQueues, id, () => Library.LibDownloadQueued(id));
+    }
+
+    static async LibDownloadQueued(id) {
         let epub = await Library.epubStorage.get(id);
         if (epub == null) {
             throw new Error("EPUB not found in library storage.");
