@@ -219,7 +219,10 @@ class Library { // eslint-disable-line no-unused-vars
             MergedEpubZip.add("OEBPS/toc.xhtml", new zip.TextReader(PreviousEpubTocEpub3Text));
         }
         let content = await MergedEpubZip.close();
-        await Library.LibHandleUpdate(-1, content, await Library.LibGetFromStorage("LibStoryURL" + LibidURL), await Library.LibGetFromStorage("LibFilename" + LibidURL), LibidURL, NewChapter);
+        let storyKey = "LibStoryURL" + LibidURL;
+        let filenameKey = "LibFilename" + LibidURL;
+        let metadata = await Library.LibReadStorageForWrite([storyKey, filenameKey]);
+        await Library.LibHandleUpdate(-1, content, metadata[storyKey], metadata[filenameKey], LibidURL, NewChapter);
         return content;
     }
 
@@ -1050,7 +1053,8 @@ class Library { // eslint-disable-line no-unused-vars
         if (epub == null) {
             throw new Error("EPUB not found in library storage.");
         }
-        let filename = await Library.LibGetFromStorage("LibFilename" + id);
+        let filenameKey = "LibFilename" + id;
+        let filename = (await Library.LibReadStorageForWrite(filenameKey))[filenameKey];
         let userPreferences = UserPreferences.readFromLocalStorage();
         let blobdata = await Library.LibConvertDataUrlToBlob(epub);
         let result = await Download.save(blobdata, (filename + ".epub").trim(),

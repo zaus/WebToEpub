@@ -667,6 +667,45 @@ test("manual merge stops before processing when stored EPUB is missing", async (
     assert.equal(merged, false);
 });
 
+for (let failMetadata of [false, true]) {
+    test(`merge ${failMetadata ? "stops on" : "preserves"} story and filename metadata ${failMetadata ? "read failure" : "on save"}`, async () => {
+        let {context, runtime} = createLibraryContext({LibStoryURL7: "url", LibFilename7: "title"});
+        let writes = [];
+        let storageGet = context.chrome.storage.local.get;
+        context.chrome.storage.local.get = (keys, callback) => {
+            if (failMetadata && Array.isArray(keys) && keys.includes("LibStoryURL7")) {
+                runtime.lastError = {message: "Metadata unavailable"};
+                callback({});
+                runtime.lastError = null;
+                return;
+            }
+            storageGet(keys, callback);
+        };
+        context.save = (...args) => { writes.push(args); };
+        let entries = ["OEBPS/content.opf", "OEBPS/toc.ncx"].map(filename => ({
+            filename, directory: false, getData: async () => "<xml/>"
+        }));
+        context.zip = {
+            Data64URIReader: class {},
+            BlobReader: class {},
+            BlobWriter: class {},
+            TextReader: class {},
+            TextWriter: class {},
+            ZipReader: class { async getEntries() { return entries; } },
+            ZipWriter: class { add() {} async close() { return "merged"; } }
+        };
+        vm.runInContext("Library.LibShowLoadingText = () => {}; Library.LibHandleUpdate = save", context);
+        let operation = vm.runInContext('Library.LibMergeEpub("old", "new", "7")', context);
+        if (failMetadata) {
+            await assert.rejects(operation, /Metadata unavailable/);
+            assert.deepEqual(writes, []);
+        } else {
+            assert.equal(await operation, "merged");
+            assert.deepEqual(writes, [[-1, "merged", "url", "title", "7", 0]]);
+        }
+    });
+}
+
 for (let firstKind of ["manual", "acquisition"]) {
     test(`manual and acquired merges serialize when ${firstKind} starts first`, async () => {
         let values = {LibArray: [7], LibStoryURL7: "url", LibEpub7: "old"};
@@ -1214,6 +1253,23 @@ test("download reports missing EPUB and storage errors without clearing state", 
     await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /EPUB not found/);
     vm.runInContext('Library.epubStorage = {get: async () => { throw new Error("Storage unavailable"); }}', context);
     await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /Storage unavailable/);
+});
+
+test("download stops before requesting a file or clearing its marker when filename storage fails", async () => {
+    let {context, runtime} = createLibraryContext();
+    let downloads = 0;
+    let removals = 0;
+    context.chrome.storage.local.get = (key, callback) => {
+        runtime.lastError = {message: "Filename unavailable"};
+        callback({});
+        runtime.lastError = null;
+    };
+    context.chrome.storage.local.remove = () => { removals++; };
+    context.Download = {save: async () => { downloads++; }};
+    vm.runInContext('Library.epubStorage = {get: async () => "epub"}', context);
+    await assert.rejects(vm.runInContext('Library.LibDownload({dataset: {libepubid: "7"}})', context), /Filename unavailable/);
+    assert.equal(downloads, 0);
+    assert.equal(removals, 0);
 });
 
 test("cover extraction reads EPUB through the adapter", async () => {
