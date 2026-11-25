@@ -814,7 +814,10 @@ class Library { // eslint-disable-line no-unused-vars
 
             EpubZipWrite.add("OEBPS/content.opf", new zip.TextReader(opfFile));
             let content = await EpubZipWrite.close();
-            await Library.LibHandleUpdate(-1, content, await Library.LibGetFromStorage("LibStoryURL"+obj.dataset.libepubid), await Library.LibGetFromStorage("LibFilename"+obj.dataset.libepubid), obj.dataset.libepubid);
+            let storyKey = "LibStoryURL" + obj.dataset.libepubid;
+            let filenameKey = "LibFilename" + obj.dataset.libepubid;
+            let metadata = await Library.LibReadStorageForWrite([storyKey, filenameKey]);
+            await Library.LibHandleUpdate(-1, content, metadata[storyKey], metadata[filenameKey], obj.dataset.libepubid);
             if (coverDataUrl != null) {
                 await Library.LibSetInStorage({["LibCover" + obj.dataset.libepubid]: coverDataUrl});
                 await Library.LibRenderSavedEpubs();

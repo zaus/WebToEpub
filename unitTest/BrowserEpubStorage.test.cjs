@@ -1379,6 +1379,51 @@ test("cover cache write errors propagate", async () => {
     await assert.rejects(vm.runInContext('Library.LibSaveCoverImgInStorage("7")', context), /Cover cache unavailable/);
 });
 
+for (let failMetadata of [false, true]) {
+    test(`metadata edit ${failMetadata ? "reports storage errors without saving" : "preserves story URL and filename"}`, async () => {
+        let {context, runtime} = createLibraryContext({LibStoryURL7: "url", LibFilename7: "title"});
+        let errors = [];
+        let writes = [];
+        let storageGet = context.chrome.storage.local.get;
+        context.chrome.storage.local.get = (keys, callback) => {
+            if (failMetadata && Array.isArray(keys) && keys.includes("LibStoryURL7")) {
+                runtime.lastError = {message: "Metadata unavailable"};
+                callback({});
+                runtime.lastError = null;
+                return;
+            }
+            storageGet(keys, callback);
+        };
+        context.document = {getElementById: () => ({value: ""})};
+        context.ErrorLog = {showErrorMessage: error => errors.push(error.message)};
+        context.EpubPacker = class { getDateForMetaData() { return "date"; } };
+        context.save = (...args) => { writes.push(args); };
+        context.zip = {
+            Data64URIReader: class {},
+            BlobReader: class {},
+            BlobWriter: class {},
+            TextReader: class {},
+            TextWriter: class {},
+            ZipReader: class {
+                async getEntries() {
+                    return [{filename: "OEBPS/content.opf", directory: false,
+                        getData: async () => "<dc:title>old</dc:title><dc:creator>old</dc:creator>"}];
+                }
+            },
+            ZipWriter: class { add() {} async close() { return "edited"; } }
+        };
+        vm.runInContext('Library.LibShowLoadingText = () => {}; Library.epubStorage = {get: async () => "epub"}; Library.LibHandleUpdate = save', context);
+        await vm.runInContext('Library.LibSaveMetadataChange({dataset: {libepubid: "7"}})', context);
+        if (failMetadata) {
+            assert.deepEqual(errors, ["Metadata unavailable"]);
+            assert.deepEqual(writes, []);
+        } else {
+            assert.deepEqual(errors, []);
+            assert.deepEqual(writes, [[-1, "edited", "url", "title", "7"]]);
+        }
+    });
+}
+
 test("metadata reads the EPUB from the selected adapter", async () => {
     let {context} = createLibraryContext();
     let readEpub;
