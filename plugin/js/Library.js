@@ -1212,9 +1212,13 @@ class Library { // eslint-disable-line no-unused-vars
             await zipWriter.add("Library/"+i+"/LibNewChapterCount", new zip.TextReader(metadata["LibNewChapterCount"+CurrentLibKeys[i]] ?? "0"));
         }
         await zipWriter.add("ReadingList.json", new zip.TextReader(JSON.stringify(fileReadingList)));
-        Download.save(await zipWriter.close(), "Libraryexport.zip").catch (err => ErrorLog.showErrorMessage(err));
+        await Download.save(await zipWriter.close(), "Libraryexport.zip");
         ProgressBar.setValue(CurrentLibKeys.length);
-        Library.LibRenderSavedEpubs();
+        try {
+            await Library.LibRenderSavedEpubs();
+        } catch (error) {
+            throw new Error("The library export download request returned, but library refresh failed: " + error.message);
+        }
     }
 
     static async LibHandelImport(objbtn) {

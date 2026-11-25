@@ -1203,6 +1203,42 @@ test("library export discovers legacy books without rewriting their index", asyn
     assert.deepEqual(downloads, [["archive", "Libraryexport.zip"]]);
 });
 
+test("library export waits for the download request before refreshing", async () => {
+    let {context} = createLibraryContext({LibEpub7: "epub"});
+    setupExport(context);
+    let release;
+    let refreshed = false;
+    let started = new Promise(resolve => { context.started = resolve; });
+    context.Download.save = async () => new Promise(resolve => { release = resolve; context.started(); });
+    context.refresh = () => { refreshed = true; };
+    vm.runInContext("Library.LibRenderSavedEpubs = refresh", context);
+    let operation = vm.runInContext("Library.Libexportall()", context);
+    await started;
+    assert.equal(refreshed, false);
+    release();
+    await operation;
+    assert.equal(refreshed, true);
+});
+
+test("library export propagates a failed download without refreshing", async () => {
+    let {context} = createLibraryContext({LibEpub7: "epub"});
+    setupExport(context);
+    let refreshed = false;
+    context.Download.save = async () => { throw new Error("Download failed"); };
+    context.refresh = () => { refreshed = true; };
+    vm.runInContext("Library.LibRenderSavedEpubs = refresh", context);
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /Download failed/);
+    assert.equal(refreshed, false);
+});
+
+test("library export identifies refresh failure after download request returned", async () => {
+    let {context} = createLibraryContext({LibEpub7: "epub"});
+    let {downloads} = setupExport(context);
+    vm.runInContext('Library.LibRenderSavedEpubs = async () => { throw new Error("Refresh failed"); }', context);
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /download request returned.*refresh failed.*Refresh failed/);
+    assert.deepEqual(downloads, [["archive", "Libraryexport.zip"]]);
+});
+
 test("downloads the selected adapter's EPUB and retains download preferences", async () => {
     let {context} = createLibraryContext({LibFilename7: "Title"});
     let removed = [];
