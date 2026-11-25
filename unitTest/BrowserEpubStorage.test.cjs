@@ -1020,7 +1020,7 @@ test("Firefox Android dispatches the link before resolving and cleans it up", as
     assert.deepEqual(events, ["append", "click", "remove", "cleanup"]);
 });
 
-function setupExport(context) {
+function setupExport(context, useRealIndex = false) {
     let entries = [];
     let downloads = [];
     context.ReadingList = class {
@@ -1037,7 +1037,10 @@ function setupExport(context) {
             async close() { return "archive"; }
         }
     };
-    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibRenderSavedEpubs = () => {}; Library.LibGetStorageIDs = async () => [7]; Library.LibGetFromStorageArray = async () => ({LibStoryURL7: "url"})', context);
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibRenderSavedEpubs = () => {}', context);
+    if (!useRealIndex) {
+        vm.runInContext('Library.LibGetStorageIDsForWrite = async () => [7]', context);
+    }
     return {entries, downloads};
 }
 
@@ -1069,6 +1072,41 @@ test("library export propagates ZIP entry failures without downloading", async (
     context.zip.ZipWriter = class { async add() { throw new Error("ZIP write failed"); } };
     await assert.rejects(vm.runInContext("Library.Libexportall()", context), /ZIP write failed/);
     assert.deepEqual(downloads, []);
+});
+
+test("library export stops when book metadata cannot be read", async () => {
+    let {context, runtime} = createLibraryContext();
+    let {entries, downloads} = setupExport(context);
+    context.chrome.storage.local.get = (keys, callback) => {
+        runtime.lastError = {message: "Metadata unavailable"};
+        callback({});
+        runtime.lastError = null;
+    };
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /Metadata unavailable/);
+    assert.deepEqual(entries, []);
+    assert.deepEqual(downloads, []);
+});
+
+test("library export stops when the library index cannot be read", async () => {
+    let {context, runtime} = createLibraryContext();
+    let {entries, downloads} = setupExport(context, true);
+    context.chrome.storage.local.get = (keys, callback) => {
+        runtime.lastError = {message: "Index unavailable"};
+        callback({});
+        runtime.lastError = null;
+    };
+    await assert.rejects(vm.runInContext("Library.Libexportall()", context), /Index unavailable/);
+    assert.deepEqual(entries, []);
+    assert.deepEqual(downloads, []);
+});
+
+test("library export discovers legacy books without rewriting their index", async () => {
+    let {context} = createLibraryContext({LibEpub7: "epub", LibFilename7: "title", LibStoryURL7: "url", LibCover7: "cover"});
+    let {entries, downloads} = setupExport(context, true);
+    context.chrome.storage.local.set = () => { throw new Error("Unexpected storage write"); };
+    await vm.runInContext("Library.Libexportall()", context);
+    assert.equal(entries.find(([name]) => name === "Library/0/LibEpub")[1], "epub");
+    assert.deepEqual(downloads, [["archive", "Libraryexport.zip"]]);
 });
 
 test("downloads the selected adapter's EPUB and retains download preferences", async () => {

@@ -1162,13 +1162,15 @@ class Library { // eslint-disable-line no-unused-vars
     
     static async Libexportall() {
         Library.LibShowLoadingText();
-        let CurrentLibKeys = await Library.LibGetStorageIDs();
-        let CurrentLibStoryURLKeys = CurrentLibKeys.map(a => "LibStoryURL" + a);
-        let CurrentLibStoryURLs = await Library.LibGetFromStorageArray(CurrentLibStoryURLKeys);
+        let CurrentLibKeys = await Library.LibGetStorageIDsForWrite();
+        let metadataKeys = CurrentLibKeys.flatMap(id => [
+            "LibStoryURL" + id, "LibCover" + id, "LibFilename" + id, "LibNewChapterCount" + id
+        ]);
+        let metadata = await Library.LibReadStorageForWrite(metadataKeys);
         
         let storyurls = [];
         for (let i = 0; i < CurrentLibKeys.length; i++) {
-            storyurls[i] = CurrentLibStoryURLs[CurrentLibStoryURLKeys[i]];
+            storyurls[i] = metadata["LibStoryURL" + CurrentLibKeys[i]];
         }
 
         let readingList = new ReadingList();
@@ -1190,11 +1192,11 @@ class Library { // eslint-disable-line no-unused-vars
             if (epub == null) {
                 throw new Error("EPUB not found in library storage for book " + CurrentLibKeys[i] + ".");
             }
-            await zipWriter.add("Library/"+i+"/LibCover", new zip.TextReader(await Library.LibGetFromStorage("LibCover"+CurrentLibKeys[i])));
+            await zipWriter.add("Library/"+i+"/LibCover", new zip.TextReader(metadata["LibCover"+CurrentLibKeys[i]]));
             await zipWriter.add("Library/"+i+"/LibEpub", new zip.TextReader(epub));
-            await zipWriter.add("Library/"+i+"/LibFilename", new zip.TextReader(await Library.LibGetFromStorage("LibFilename" + CurrentLibKeys[i])));
-            await zipWriter.add("Library/"+i+"/LibStoryURL", new zip.TextReader(await Library.LibGetFromStorage("LibStoryURL" + CurrentLibKeys[i])));
-            await zipWriter.add("Library/"+i+"/LibNewChapterCount", new zip.TextReader(await Library.LibGetFromStorage("LibNewChapterCount"+CurrentLibKeys[i]) ?? "0"));
+            await zipWriter.add("Library/"+i+"/LibFilename", new zip.TextReader(metadata["LibFilename" + CurrentLibKeys[i]]));
+            await zipWriter.add("Library/"+i+"/LibStoryURL", new zip.TextReader(metadata["LibStoryURL" + CurrentLibKeys[i]]));
+            await zipWriter.add("Library/"+i+"/LibNewChapterCount", new zip.TextReader(metadata["LibNewChapterCount"+CurrentLibKeys[i]] ?? "0"));
         }
         await zipWriter.add("ReadingList.json", new zip.TextReader(JSON.stringify(fileReadingList)));
         Download.save(await zipWriter.close(), "Libraryexport.zip").catch (err => ErrorLog.showErrorMessage(err));
