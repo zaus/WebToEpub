@@ -667,6 +667,100 @@ test("manual merge stops before processing when stored EPUB is missing", async (
     assert.equal(merged, false);
 });
 
+for (let firstKind of ["edit", "merge"]) {
+    test(`metadata edit and same-book merge serialize when ${firstKind} starts first`, async () => {
+        let values = {LibEpub7: "old", LibStoryURL7: "url"};
+        let {context} = createLibraryContext(values);
+        let input = {value: "initial"};
+        let events = [];
+        let release;
+        let started = new Promise(resolve => { context.started = resolve; });
+        context.document = {getElementById: id => id.startsWith("LibTitleInput") ? input : {value: ""}};
+        context.edit = async (id, fields) => {
+            events.push(["edit", values.LibEpub7, fields.LibTitleInput]);
+            if (firstKind === "edit") {
+                await new Promise(resolve => { release = resolve; context.started(); });
+            }
+            values.LibEpub7 += "+edit";
+        };
+        context.merge = async previous => {
+            events.push(["merge", previous]);
+            if (firstKind === "merge") {
+                await new Promise(resolve => { release = resolve; context.started(); });
+            }
+            values.LibEpub7 = previous + "+merge";
+        };
+        vm.runInContext('Library.LibSaveMetadataChangeQueued = edit; Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null', context);
+        let edit = () => vm.runInContext('Library.LibSaveMetadataChange({dataset: {libepubid: "7"}})', context);
+        let merge = () => vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context);
+        let first = firstKind === "edit" ? edit() : merge();
+        await started;
+        let second = firstKind === "edit" ? merge() : edit();
+        input.value = "changed";
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(events.length, 1);
+        release();
+        await Promise.all([first, second]);
+        assert.deepEqual(events, firstKind === "edit"
+            ? [["edit", "old", "initial"], ["merge", "old+edit"]]
+            : [["merge", "old"], ["edit", "old+merge", "initial"]]);
+        assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+    });
+}
+
+test("a failed metadata edit releases the book queue", async () => {
+    let {context} = createLibraryContext({LibEpub7: "old", LibStoryURL7: "url"});
+    let merged = false;
+    context.document = {getElementById: () => ({value: ""})};
+    context.merge = async () => { merged = true; };
+    vm.runInContext('Library.LibSaveMetadataChangeQueued = async () => { throw new Error("Edit failed"); }; Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null', context);
+    await assert.rejects(vm.runInContext('Library.LibSaveMetadataChange({dataset: {libepubid: "7"}})', context), /Edit failed/);
+    await vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context);
+    assert.equal(merged, true);
+    assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+});
+
+test("metadata edit reads the EPUB after an earlier same-book merge finishes", async () => {
+    let values = {LibEpub7: "old", LibStoryURL7: "url", LibFilename7: "title"};
+    let {context} = createLibraryContext(values);
+    let release;
+    let started = new Promise(resolve => { context.started = resolve; });
+    let editedSource;
+    let saved;
+    context.document = {getElementById: () => ({value: ""})};
+    context.ErrorLog = {showErrorMessage: error => { throw error; }};
+    context.EpubPacker = class { getDateForMetaData() { return "date"; } };
+    context.merge = async previous => {
+        await new Promise(resolve => { release = resolve; context.started(); });
+        values.LibEpub7 = previous + "+merge";
+    };
+    context.save = async (button, content) => { saved = content; };
+    context.zip = {
+        Data64URIReader: class { constructor(value) { editedSource = value; } },
+        BlobReader: class {},
+        BlobWriter: class {},
+        TextReader: class {},
+        TextWriter: class {},
+        ZipReader: class {
+            async getEntries() {
+                return [{filename: "OEBPS/content.opf", directory: false,
+                    getData: async () => "<dc:title>old</dc:title><dc:creator>old</dc:creator>"}];
+            }
+        },
+        ZipWriter: class { add() {} async close() { return "edited"; } }
+    };
+    vm.runInContext('Library.LibShowLoadingText = () => {}; Library.LibMergeEpub = merge; Library.LibHandleUpdate = save; Library.LibGetSourceChapterList = async () => null', context);
+    let merge = vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context);
+    await started;
+    let edit = vm.runInContext('Library.LibSaveMetadataChange({dataset: {libepubid: "7"}})', context);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(editedSource, undefined);
+    release();
+    await Promise.all([merge, edit]);
+    assert.equal(editedSource, "old+merge");
+    assert.equal(saved, "edited");
+});
+
 for (let failMetadata of [false, true]) {
     test(`merge ${failMetadata ? "stops on" : "preserves"} story and filename metadata ${failMetadata ? "read failure" : "on save"}`, async () => {
         let {context, runtime} = createLibraryContext({LibStoryURL7: "url", LibFilename7: "title"});

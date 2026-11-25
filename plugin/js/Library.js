@@ -649,7 +649,7 @@ class Library { // eslint-disable-line no-unused-vars
         document.getElementById("LibSubjectInput"+objbtn.dataset.libepubid).value = LibMetadata[3];
         document.getElementById("LibDescriptionInput"+objbtn.dataset.libepubid).value = LibMetadata[4];
         document.getElementById("LibPublisherInput"+objbtn.dataset.libepubid).value = LibMetadata[5];
-        document.getElementById("LibMetadataSave"+objbtn.dataset.libepubid).addEventListener("click", function() {Library.LibSaveMetadataChange(this);});
+        document.getElementById("LibMetadataSave"+objbtn.dataset.libepubid).addEventListener("click", function() {Library.LibSaveMetadataChange(this).catch(err => ErrorLog.showErrorMessage(err));});
     }
 
     static async LibOpenURL(objbtn) {
@@ -667,6 +667,16 @@ class Library { // eslint-disable-line no-unused-vars
         let LibDescriptionInput = document.getElementById("LibDescriptionInput"+obj.dataset.libepubid).value;
         let LibPublisherInput = document.getElementById("LibPublisherInput"+obj.dataset.libepubid).value;
         let LibCoverImageUrlInput = document.getElementById("LibCoverImageUrlInput"+obj.dataset.libepubid).value;
+        let fields = {LibTitleInput, LibAuthorInput, LibLanguageInput, LibSubjectInput,
+            LibDescriptionInput, LibPublisherInput, LibCoverImageUrlInput};
+        let id = String(obj.dataset.libepubid);
+        return Library.LibQueueByKey(Library.bookQueues, id, () =>
+            Library.LibSaveMetadataChangeQueued(id, fields));
+    }
+
+    static async LibSaveMetadataChangeQueued(id, fields) {
+        let {LibTitleInput, LibAuthorInput, LibLanguageInput, LibSubjectInput,
+            LibDescriptionInput, LibPublisherInput, LibCoverImageUrlInput} = fields;
         Library.LibShowLoadingText();
 
         let newCoverBlob = null;
@@ -693,7 +703,7 @@ class Library { // eslint-disable-line no-unused-vars
 
         let LibDateCreated = new EpubPacker().getDateForMetaData();
         try {
-            let EpubReader = await new zip.Data64URIReader(await Library.LibGetFromStorage("LibEpub"+obj.dataset.libepubid));
+            let EpubReader = await new zip.Data64URIReader(await Library.LibGetFromStorage("LibEpub"+id));
             let EpubZipRead = new zip.ZipReader(EpubReader, {useWebWorkers: false});
             let EpubContent =  await EpubZipRead.getEntries();
             EpubContent = EpubContent.filter(a => a.directory == false);
@@ -814,12 +824,12 @@ class Library { // eslint-disable-line no-unused-vars
 
             EpubZipWrite.add("OEBPS/content.opf", new zip.TextReader(opfFile));
             let content = await EpubZipWrite.close();
-            let storyKey = "LibStoryURL" + obj.dataset.libepubid;
-            let filenameKey = "LibFilename" + obj.dataset.libepubid;
+            let storyKey = "LibStoryURL" + id;
+            let filenameKey = "LibFilename" + id;
             let metadata = await Library.LibReadStorageForWrite([storyKey, filenameKey]);
-            await Library.LibHandleUpdate(-1, content, metadata[storyKey], metadata[filenameKey], obj.dataset.libepubid);
+            await Library.LibHandleUpdate(-1, content, metadata[storyKey], metadata[filenameKey], id);
             if (coverDataUrl != null) {
-                await Library.LibSetInStorage({["LibCover" + obj.dataset.libepubid]: coverDataUrl});
+                await Library.LibSetInStorage({["LibCover" + id]: coverDataUrl});
                 await Library.LibRenderSavedEpubs();
             }
         } catch (error) {
