@@ -1243,14 +1243,24 @@ class Library { // eslint-disable-line no-unused-vars
         let zipFileReader = new zip.BlobReader(Blobdata);
         let zipReader = new zip.ZipReader(zipFileReader, {useWebWorkers: false});
         let entries = await zipReader.getEntries();
-        //check export logic version
-        let LibraryVersion = await (await entries.filter((a) => a.filename == "LibraryVersion.txt")[0]).getData(new zip.TextWriter());
-        
-        if (LibraryVersion == null) {
-            ErrorLog.showErrorMessage("Wrong export version");
-            return;
+        let LibCountEntries;
+        try {
+            let versionEntry = entries.find(entry => entry.filename == "LibraryVersion.txt");
+            let countEntry = entries.find(entry => entry.filename == "LibraryCountEntries.txt");
+            if (!versionEntry || await versionEntry.getData(new zip.TextWriter()) !== "2") {
+                throw new Error("Missing or unsupported library archive version.");
+            }
+            if (!countEntry) {
+                throw new Error("Missing library archive book count.");
+            }
+            let count = await countEntry.getData(new zip.TextWriter());
+            LibCountEntries = Number(count);
+            if (!/^\d+$/.test(count) || !Number.isSafeInteger(LibCountEntries)) {
+                throw new Error("Invalid library archive book count.");
+            }
+        } catch (error) {
+            throw Library.LibImportError(0, error);
         }
-        let LibCountEntries = await (await entries.filter((a) => a.filename == "LibraryCountEntries.txt")[0])?.getData(new zip.TextWriter());
         ProgressBar.setMax(LibCountEntries);
         for (let i = 0; i < LibCountEntries; i++) {
             ProgressBar.setValue(i);

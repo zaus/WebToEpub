@@ -97,3 +97,33 @@ test("real ZIP export does not request a download for a missing EPUB", async () 
     await assert.rejects(vm.runInContext("Library.Libexportall()", source.context), /EPUB not found.*7/);
     assert.equal(source.getArchive(), undefined);
 });
+
+async function archiveWithHeaders(headers) {
+    let writer = new zip.ZipWriter(new zip.BlobWriter("application/zip"), {useWebWorkers: false});
+    for (let [name, value] of headers) {
+        await writer.add(name, new zip.TextReader(value));
+    }
+    await writer.add("ReadingList.json", new zip.TextReader(JSON.stringify({ReadingList: {epubs: []}})));
+    return writer.close();
+}
+
+for (let [label, headers] of [
+    ["missing version", [["LibraryCountEntries.txt", "0"]]],
+    ["unsupported version", [["LibraryVersion.txt", "3"], ["LibraryCountEntries.txt", "0"]]],
+    ["missing count", [["LibraryVersion.txt", "2"]]],
+    ["empty count", [["LibraryVersion.txt", "2"], ["LibraryCountEntries.txt", ""]]],
+    ["negative count", [["LibraryVersion.txt", "2"], ["LibraryCountEntries.txt", "-1"]]],
+    ["fractional count", [["LibraryVersion.txt", "2"], ["LibraryCountEntries.txt", "0.5"]]],
+    ["non-numeric count", [["LibraryVersion.txt", "2"], ["LibraryCountEntries.txt", "books"]]],
+    ["unsafe count", [["LibraryVersion.txt", "2"], ["LibraryCountEntries.txt", "9007199254740992"]]]
+]) {
+    test(`ZIP import rejects ${label} before changing the library`, async () => {
+        let values = {LibArray: [7], LibEpub7: "existing"};
+        let destination = libraryContext(values);
+        destination.context.archive = await archiveWithHeaders(headers);
+        await assert.rejects(vm.runInContext("Library.LibFileReaderloadImport(archive)", destination.context),
+            /Library import failed\. No books were imported\..*(version|count)/i);
+        assert.deepEqual(values, {LibArray: [7], LibEpub7: "existing"});
+        assert.equal(destination.getReadingList(), undefined);
+    });
+}
