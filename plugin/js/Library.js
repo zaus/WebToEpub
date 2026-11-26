@@ -1465,6 +1465,29 @@ class Library { // eslint-disable-line no-unused-vars
         let chaptersource = [...chapters.map(a => contentopf.getElementById("id." + a.id).innerText)];
         return chaptersource;
     }
+
+    static LibPreviewChapterDelta(localChapters, sourceChapters) {
+        if (!Array.isArray(localChapters) || !Array.isArray(sourceChapters) ||
+            localChapters.some(chapter => typeof chapter !== "string") ||
+            sourceChapters.some(chapter => typeof chapter !== "string")) {
+            throw new Error("Chapter preview requires URL lists.");
+        }
+        let localSet = new Set(localChapters);
+        let sourceSet = new Set(sourceChapters);
+        let appended = sourceChapters.filter(chapter => !localSet.has(chapter));
+        let removed = localChapters.filter(chapter => !sourceSet.has(chapter));
+        let sharedLocal = localChapters.filter(chapter => sourceSet.has(chapter));
+        let sharedSource = sourceChapters.filter(chapter => localSet.has(chapter));
+        let reordered = sharedLocal.length !== sharedSource.length ||
+            sharedLocal.some((chapter, index) => chapter !== sharedSource[index]);
+        return {
+            unchanged: appended.length === 0 && removed.length === 0 && !reordered,
+            appended,
+            removed,
+            reordered,
+            ambiguous: removed.length > 0 || reordered
+        };
+    }
 }
 
 Library.epubStorage = new BrowserEpubStorage();

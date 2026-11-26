@@ -1656,3 +1656,30 @@ test("metadata read preserves empty metadata for unsupported EPUB structures", a
     let metadata = await vm.runInContext('Library.LibGetMetadata("7")', context);
     assert.deepEqual(Array.from(metadata), []);
 });
+
+test("chapter preview reports unchanged and appended chapters without mutation", async () => {
+    let {context} = createLibraryContext();
+    let unchanged = await vm.runInContext('Library.LibPreviewChapterDelta(["one", "two"], ["one", "two"])', context);
+    assert.equal(unchanged.unchanged, true);
+    assert.deepEqual(Array.from(unchanged.appended), []);
+    assert.equal(unchanged.ambiguous, false);
+    let appended = await vm.runInContext('Library.LibPreviewChapterDelta(["one", "two"], ["one", "two", "three"])', context);
+    assert.equal(appended.unchanged, false);
+    assert.deepEqual(Array.from(appended.appended), ["three"]);
+    assert.equal(appended.ambiguous, false);
+});
+
+test("chapter preview flags removed and reordered chapters as ambiguous", async () => {
+    let {context} = createLibraryContext();
+    let removed = await vm.runInContext('Library.LibPreviewChapterDelta(["one", "two"], ["one"])', context);
+    assert.deepEqual(Array.from(removed.removed), ["two"]);
+    assert.equal(removed.ambiguous, true);
+    let reordered = await vm.runInContext('Library.LibPreviewChapterDelta(["one", "two"], ["two", "one"])', context);
+    assert.equal(reordered.reordered, true);
+    assert.equal(reordered.ambiguous, true);
+});
+
+test("chapter preview rejects invalid chapter lists", async () => {
+    let {context} = createLibraryContext();
+    assert.throws(() => vm.runInContext('Library.LibPreviewChapterDelta(["one"], [7])', context), /URL lists/);
+});
