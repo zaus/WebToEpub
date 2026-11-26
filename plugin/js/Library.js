@@ -1468,6 +1468,11 @@ class Library { // eslint-disable-line no-unused-vars
 }
 
 Library.epubStorage = new BrowserEpubStorage();
+chrome.storage.local.get("ExternalEpubStorage", items => {
+    if (!chrome.runtime.lastError && items.ExternalEpubStorage?.enabled) {
+        Library.epubStorage = new ExternalEpubStorage();
+    }
+});
 Library.updateQueue = Promise.resolve();
 Library.acquisitionQueues = new Map();
 Library.bookQueues = new Map();

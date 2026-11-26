@@ -36,14 +36,14 @@ test("reads existing EPUB data through the browser storage adapter", async () =>
     let {context, calls} = createLibraryContext({LibEpub7: "data:application/epub+zip;base64,YQ=="});
     let value = await vm.runInContext('Library.LibGetFromStorage("LibEpub7")', context);
     assert.equal(value, "data:application/epub+zip;base64,YQ==");
-    assert.deepEqual(calls, ["LibEpub7"]);
+    assert.deepEqual(calls.filter(key => key !== "ExternalEpubStorage"), ["LibEpub7"]);
 });
 
 test("preserves missing EPUB and metadata lookup behavior", async () => {
     let {context, calls} = createLibraryContext({LibFilename7: "Title"});
     assert.equal(await vm.runInContext('Library.LibGetFromStorage("LibEpub9")', context), undefined);
     assert.equal(await vm.runInContext('Library.LibGetFromStorage("LibFilename7")', context), "Title");
-    assert.deepEqual(calls, ["LibEpub9", "LibFilename7"]);
+    assert.deepEqual(calls.filter(key => key !== "ExternalEpubStorage"), ["LibEpub9", "LibFilename7"]);
 });
 
 test("propagates EPUB storage errors", async () => {
@@ -642,7 +642,7 @@ test("routes EPUB reads through the configured adapter", async () => {
     let {context, calls} = createLibraryContext();
     vm.runInContext('Library.epubStorage = {get: async id => "adapter:" + id}', context);
     assert.equal(await vm.runInContext('Library.LibGetFromStorage("LibEpub42")', context), "adapter:42");
-    assert.deepEqual(calls, []);
+    assert.deepEqual(calls.filter(key => key !== "ExternalEpubStorage"), []);
 });
 
 test("chapter lookup distinguishes untracked stories from missing stored EPUBs", async () => {
