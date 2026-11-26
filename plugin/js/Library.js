@@ -479,7 +479,7 @@ class Library { // eslint-disable-line no-unused-vars
                 LibRenderString += "</tr>";
                 LibRenderString += "<tr>";
                 LibRenderString += "<td>"+LibTemplateFilename+"</td>";
-                LibRenderString += "<td><input id='LibFilename"+CurrentLibKeys[i]+"' type='text' value=''></td>";
+                LibRenderString += "<td><input data-libepubid="+CurrentLibKeys[i]+" id='LibFilename"+CurrentLibKeys[i]+"' type='text' value=''></td>";
                 LibRenderString += "</tr>";
                 LibRenderString += "</tbody>";
                 LibRenderString += "</table>";
@@ -506,10 +506,10 @@ class Library { // eslint-disable-line no-unused-vars
                 document.getElementById("LibDeleteEpub"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibDeleteEpub(this);});
                 document.getElementById("LibUpdateNewChapter"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibUpdateNewChapter(this);});
                 document.getElementById("LibDownload"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibDownload(this).catch(err => ErrorLog.showErrorMessage(err));});
-                document.getElementById("LibStoryURL"+CurrentLibKeys[i]).addEventListener("change", function() {Library.LibSaveTextURLChange(this);});
+                document.getElementById("LibStoryURL"+CurrentLibKeys[i]).addEventListener("change", function() {Library.LibSaveTextURLChange(this).catch(err => ErrorLog.showErrorMessage(err));});
                 document.getElementById("LibStoryURL"+CurrentLibKeys[i]).addEventListener("focusin", function() {Library.LibShowTextURLWarning(this);});
                 document.getElementById("LibStoryURL"+CurrentLibKeys[i]).addEventListener("focusout", function() {Library.LibHideTextURLWarning(this);});
-                document.getElementById("LibFilename"+CurrentLibKeys[i]).addEventListener("change", function() {Library.LibSaveTextURLChange(this);});
+                document.getElementById("LibFilename"+CurrentLibKeys[i]).addEventListener("change", function() {Library.LibSaveTextURLChange(this).catch(err => ErrorLog.showErrorMessage(err));});
                 if (ShowAdvancedOptions) {
                     document.getElementById("LibChangeOrderUp"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibChangeOrderUp(this);});
                     document.getElementById("LibChangeOrderDown"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibChangeOrderDown(this);});
@@ -1314,11 +1314,11 @@ class Library { // eslint-disable-line no-unused-vars
         return new Error("Library import failed. " + progress + error.message);
     }
 
-    static LibSaveTextURLChange(obj) {
-        let LibGetFileAndName = obj.id;
-        chrome.storage.local.set({
-            [LibGetFileAndName]: obj.value
-        });
+    static async LibSaveTextURLChange(obj) {
+        let id = String(obj.dataset.libepubid);
+        let key = obj.id;
+        let value = obj.value;
+        return Library.LibQueueByKey(Library.bookQueues, id, () => Library.LibSetInStorage({[key]: value}));
     }
 
     static LibShowTextURLWarning(obj) {

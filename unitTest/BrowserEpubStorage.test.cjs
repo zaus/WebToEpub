@@ -667,6 +667,72 @@ test("manual merge stops before processing when stored EPUB is missing", async (
     assert.equal(merged, false);
 });
 
+for (let key of ["LibStoryURL7", "LibFilename7"]) {
+    for (let firstKind of ["change", "merge"]) {
+        test(`${key} change and same-book merge serialize when ${firstKind} starts first`, async () => {
+            let values = {LibEpub7: "old", LibStoryURL7: "url", LibFilename7: "title"};
+            let {context} = createLibraryContext(values);
+            let release;
+            let started = new Promise(resolve => { context.started = resolve; });
+            let events = [];
+            let input = {dataset: {libepubid: "7"}, id: key, value: "edited"};
+            context.input = input;
+            context.chrome.storage.local.set = (items, callback) => {
+                events.push("change");
+                let finish = () => { Object.assign(values, items); callback(); };
+                if (firstKind === "change") {
+                    release = finish;
+                    context.started();
+                } else {
+                    finish();
+                }
+            };
+            context.merge = async () => {
+                events.push("merge");
+                if (firstKind === "merge") {
+                    await new Promise(resolve => { release = resolve; context.started(); });
+                }
+            };
+            vm.runInContext("Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null", context);
+            let change = () => vm.runInContext("Library.LibSaveTextURLChange(input)", context);
+            let merge = () => vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context);
+            let first = firstKind === "change" ? change() : merge();
+            await started;
+            let second = firstKind === "change" ? merge() : change();
+            input.value = "later";
+            await new Promise(resolve => setImmediate(resolve));
+            assert.deepEqual(events, [firstKind]);
+            release();
+            await Promise.all([first, second]);
+            assert.deepEqual(events, firstKind === "change" ? ["change", "merge"] : ["merge", "change"]);
+            assert.equal(values[key], "edited");
+            assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+        });
+    }
+}
+
+for (let key of ["LibStoryURL7", "LibFilename7"]) {
+    test(`failed ${key} change propagates and releases the book queue`, async () => {
+        let values = {LibEpub7: "old", LibStoryURL7: "url", LibFilename7: "title"};
+        let {context, runtime} = createLibraryContext(values);
+        let original = values[key];
+        let merged = false;
+        context.input = {dataset: {libepubid: "7"}, id: key, value: "new"};
+        context.chrome.storage.local.set = (items, callback) => {
+            runtime.lastError = {message: "Text write failed"};
+            callback();
+            runtime.lastError = null;
+        };
+        context.merge = async () => { merged = true; };
+        vm.runInContext("Library.LibMergeEpub = merge; Library.LibGetSourceChapterList = async () => null", context);
+        await assert.rejects(vm.runInContext("Library.LibSaveTextURLChange(input)", context), /Text write failed/);
+        await vm.runInContext('Library.LibMergeUpload({dataset: {libepubid: "7"}, files: ["new"]})', context);
+        assert.equal(values[key], original);
+        assert.equal(merged, true);
+        assert.equal(vm.runInContext("Library.bookQueues.size", context), 0);
+    });
+}
+
 for (let firstKind of ["edit", "merge"]) {
     test(`metadata edit and same-book merge serialize when ${firstKind} starts first`, async () => {
         let values = {LibEpub7: "old", LibStoryURL7: "url"};
