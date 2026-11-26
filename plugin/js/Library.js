@@ -363,6 +363,8 @@ class Library { // eslint-disable-line no-unused-vars
         let LibTemplateFilename = document.getElementById("LibTemplateFilename").innerHTML;
         let LibTemplateMergeUploadButton = "";
         let LibTemplateEditMetadataButton = "";
+        let lockKeys = CurrentLibKeys.map(id => "LibLocked" + id);
+        let lockedItems = lockKeys.length ? await Library.LibReadStorageForWrite(lockKeys) : {};
         let LibTemplateOpenURLButton = "";
 
         LibRenderString += "<div class='LibDivRenderWraper'>";
@@ -442,6 +444,8 @@ class Library { // eslint-disable-line no-unused-vars
                 }
                 LibRenderString += "<button data-libepubid="+CurrentLibKeys[i]+" id='LibDeleteEpub"+CurrentLibKeys[i]+"'>"+LibTemplateDeleteEpub+"</button>";
                 LibRenderString += "<button data-libepubid="+CurrentLibKeys[i]+" id='LibUpdateNewChapter"+CurrentLibKeys[i]+"'>"+LibTemplateUpdateNewChapter+"</button>";
+                let isLocked = lockedItems["LibLocked" + CurrentLibKeys[i]] === true;
+                LibRenderString += "<button data-libepubid="+CurrentLibKeys[i]+" id='LibToggleLock"+CurrentLibKeys[i]+"'>"+(isLocked ? "Unlock" : "Lock")+"</button>";
                 LibRenderString += "<button data-libepubid="+CurrentLibKeys[i]+" id='LibDownload"+CurrentLibKeys[i]+"'>"+LibTemplateDownload+"</button>";
                 LibRenderString += "<span style='padding: 1em; font-size: 1.2em; color: Chartreuse;' id='LibNewChapterCount"+CurrentLibKeys[i]+"'></span>";
                 if (ShowAdvancedOptions) {
@@ -505,6 +509,7 @@ class Library { // eslint-disable-line no-unused-vars
             for (let i = 0; i < CurrentLibKeys.length; i++) {
                 document.getElementById("LibDeleteEpub"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibDeleteEpub(this);});
                 document.getElementById("LibUpdateNewChapter"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibUpdateNewChapter(this);});
+                document.getElementById("LibToggleLock"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibToggleLock(this).catch(err => ErrorLog.showErrorMessage(err));});
                 document.getElementById("LibDownload"+CurrentLibKeys[i]).addEventListener("click", function() {Library.LibDownload(this).catch(err => ErrorLog.showErrorMessage(err));});
                 document.getElementById("LibStoryURL"+CurrentLibKeys[i]).addEventListener("change", function() {Library.LibSaveTextURLChange(this).catch(err => ErrorLog.showErrorMessage(err));});
                 document.getElementById("LibStoryURL"+CurrentLibKeys[i]).addEventListener("focusin", function() {Library.LibShowTextURLWarning(this);});
@@ -1020,7 +1025,7 @@ class Library { // eslint-disable-line no-unused-vars
 
     static async LibDeleteEpub(objbtn) {
         await Library.LibRemoveStorageIDs(objbtn.dataset.libepubid);
-        let LibRemove = ["LibEpub" + objbtn.dataset.libepubid, "LibStoryURL" + objbtn.dataset.libepubid, "LibFilename" + objbtn.dataset.libepubid, "LibCover" + objbtn.dataset.libepubid, "LibNewChapterCount" + objbtn.dataset.libepubid];
+        let LibRemove = ["LibEpub" + objbtn.dataset.libepubid, "LibStoryURL" + objbtn.dataset.libepubid, "LibFilename" + objbtn.dataset.libepubid, "LibCover" + objbtn.dataset.libepubid, "LibNewChapterCount" + objbtn.dataset.libepubid, "LibLocked" + objbtn.dataset.libepubid];
         Library.userPreferences.readingList.tryDeleteEpubAndSave(document.getElementById("LibStoryURL" + objbtn.dataset.libepubid).value);
         chrome.storage.local.remove(LibRemove);
         Library.LibRenderSavedEpubs();
@@ -1084,6 +1089,21 @@ class Library { // eslint-disable-line no-unused-vars
     static LibClearFields() {
         main.resetUI();
     }
+
+    static async LibIsLocked(id) {
+        let key = "LibLocked" + id;
+        let items = await Library.LibReadStorageForWrite(key);
+        return items[key] === true;
+    }
+
+    static async LibToggleLock(objbtn) {
+        let id = String(objbtn.dataset.libepubid);
+        let key = "LibLocked" + id;
+        let locked = await Library.LibIsLocked(id);
+        await Library.LibSetInStorage({[key]: !locked});
+        objbtn.textContent = locked ? "Lock" : "Unlock";
+        objbtn.setAttribute("aria-pressed", locked ? "false" : "true");
+    }
     
     static async Libupdateall() {
         document.getElementById("libupdateall").disabled = true;
@@ -1091,6 +1111,9 @@ class Library { // eslint-disable-line no-unused-vars
         let errors = [];
         ErrorLog.SuppressErrorLog =  true;
         for (let i = 0; i < LibArray.length; i++) {
+            if (await Library.LibIsLocked(LibArray[i])) {
+                continue;
+            }
             Library.LibClearFields();
             let obj = {};
             obj.dataset = {};

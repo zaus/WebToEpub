@@ -1657,6 +1657,45 @@ test("metadata read preserves empty metadata for unsupported EPUB structures", a
     assert.deepEqual(Array.from(metadata), []);
 });
 
+test("library lock toggles persist and expose pressed state", async () => {
+    let values = {LibLocked7: false};
+    let {context} = createLibraryContext(values);
+    context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+    let button = {dataset: {libepubid: "7"}, textContent: "Lock", setAttribute(name, value) { this[name] = value; }};
+    context.button = button;
+    await vm.runInContext("Library.LibToggleLock(button)", context);
+    assert.equal(values.LibLocked7, true);
+    assert.equal(button.textContent, "Unlock");
+    assert.equal(button["aria-pressed"], "true");
+    await vm.runInContext("Library.LibToggleLock(button)", context);
+    assert.equal(values.LibLocked7, false);
+    assert.equal(button.textContent, "Lock");
+    assert.equal(button["aria-pressed"], "false");
+});
+
+test("update all skips locked books", async () => {
+    let values = {LibArray: [7, 8], LibLocked7: true, LibLocked8: false,
+        LibStoryURL7: "locked", LibStoryURL8: "unlocked"};
+    let {context} = createLibraryContext(values);
+    let urls = [];
+    let startingUrl = {value: ""};
+    context.document = {getElementById: id => id === "libupdateall"
+        ? {disabled: false}
+        : id === "startingUrlInput"
+            ? startingUrl
+            : {innerHTML: "", value: "", checked: false}};
+    startingUrl.value = "";
+    context.main = {
+        resetUI() {},
+        onLoadAndAnalyseButtonClick: async function() { urls.push(startingUrl.value); },
+        fetchContentAndPackEpub: async function() {},
+        getCurrentParser: () => ({rateLimitDelay: async () => {}})
+    };
+    context.ErrorLog = {SuppressErrorLog: false, showErrorMessage() {}};
+    await vm.runInContext("Library.Libupdateall()", context);
+    assert.deepEqual(urls, ["unlocked"]);
+});
+
 test("chapter preview reports unchanged and appended chapters without mutation", async () => {
     let {context} = createLibraryContext();
     let unchanged = await vm.runInContext('Library.LibPreviewChapterDelta(["one", "two"], ["one", "two"])', context);
