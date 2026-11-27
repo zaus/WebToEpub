@@ -342,41 +342,62 @@ var main = (function() {
     }
 
     function onLibraryClick() {
-        chrome.tabs.create({
-            url: chrome.runtime.getURL("library.html")
-        }).catch(error => ErrorLog.showErrorMessage(error));
+        switchMainView("library");
+    }
+
+    function switchMainView(view) {
+        let acquisition = document.getElementById("inputSection");
+        let library = getLibrarySection();
+        let acquisitionTab = document.getElementById("acquisitionViewTab");
+        let libraryTab = document.getElementById("libraryViewTab");
+        let showLibrary = view === "library";
+        if (acquisition != null) {
+            acquisition.hidden = showLibrary;
+        }
+        if (library != null) {
+            library.hidden = !showLibrary;
+            if (showLibrary) {
+                Library.LibRenderSavedEpubs();
+            }
+        }
+        if (acquisitionTab != null) {
+            acquisitionTab.setAttribute("aria-selected", showLibrary ? "false" : "true");
+        }
+        if (libraryTab != null) {
+            libraryTab.setAttribute("aria-selected", showLibrary ? "true" : "false");
+        }
+        document.querySelector(".container")?.classList.toggle("libraryView", showLibrary);
+    }
+
+    async function initializePopupMode() {
+        localizeHtmlPage();
+        userPreferences = UserPreferences.readFromLocalStorage();
+        userPreferences.addObserver(library);
+        userPreferences.writeToUi();
+        userPreferences.hookupUi();
+        BakaTsukiSeriesPageParser.registerBakaParsers(userPreferences.autoSelectBTSeriesPage.value);
+        parserFactory.populateManualParserSelectionTag(getManuallySelectParserTag());
+        addEventHandlers();
+        if (util.isFirefox()) {
+            Firefox.startWebRequestListeners();
+        }
+
+        let tabs = await new Promise(resolve => chrome.tabs.query({currentWindow: true, active: true}, resolve));
+        let activeUrl = tabs?.[0]?.url;
+        let acquirable = false;
+        if (/^https?:\/\//.test(activeUrl ?? "")) {
+            acquirable = parserFactory.fetchByUrl(activeUrl) != null;
+        }
+        switchMainView(acquirable ? "acquisition" : "library");
+        if (acquirable) {
+            setUiFieldToValue("startingUrlInput", activeUrl);
+            await getActiveTabDOM(tabs[0].id);
+        }
     }
 
     function onStylesheetToDefaultClick() {
         document.getElementById("stylesheetInput").value = EpubMetaInfo.getDefaultStyleSheet();
         userPreferences.readFromUi();
-    }
-
-    async function openTabWindow() {
-        // open new tab window, passing ID of open tab with content to convert to epub as query parameter.
-        let tabId = await getActiveTab();
-        let url = chrome.runtime.getURL("popup.html") + "?id=";
-        url += tabId;
-        try {
-            chrome.tabs.create({ url: url, openerTabId: tabId });
-        }
-        catch (err) {
-            //firefox android catch
-            chrome.tabs.create({ url: url});
-        }
-        window.close();
-    }
-
-    function getActiveTab() {
-        return new Promise((resolve, reject) => {
-            chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => {
-                if ((tabs != null) && (0 < tabs.length)) {
-                    resolve(tabs[0].id);
-                } else {
-                    reject();
-                }
-            });
-        });
     }
 
     async function onLoadAndAnalyseButtonClick() {
@@ -540,6 +561,8 @@ var main = (function() {
         getManuallySelectParserTag().onchange = populateControls;
         document.getElementById("advancedOptionsButton").onclick = onAdvancedOptionsClick;
         document.getElementById("hiddenBibButton").onclick = onLibraryClick;
+        document.getElementById("acquisitionViewTab").addEventListener("click", () => switchMainView("acquisition"));
+        document.getElementById("libraryViewTab").addEventListener("click", () => switchMainView("library"));
         document.getElementById("ShowMoreMetadataOptionsCheckbox").addEventListener("change", () => onShowMoreMetadataOptionsClick());
         document.getElementById("LibShowAdvancedOptionsCheckbox").addEventListener("change", () => Library.LibRenderSavedEpubs());
         document.getElementById("LibAddToLibrary").addEventListener("click", function() {fetchContentAndPackEpub.call(this).catch(err => ErrorLog.showErrorMessage(err));});
@@ -664,11 +687,12 @@ var main = (function() {
             getAdditionalMetadataSection().hidden = !userPreferences.ShowMoreMetadataOptions.value;
             addEventHandlers();
             populateControls();
+            switchMainView("acquisition");
             if (util.isFirefox()) {
                 Firefox.startWebRequestListeners();
             }
         } else {
-            await openTabWindow();
+            await initializePopupMode();
         }
     };
 

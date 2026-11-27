@@ -13,6 +13,10 @@
         <section id="extensionVersionSection">
             <span id="spanExtensionVersion"></span>
         </section>
+        <nav id="mainViewTabs" class="mainViewTabs" aria-label="Main view">
+            <button id="acquisitionViewTab" type="button" aria-selected="true">Acquisition</button>
+            <button id="libraryViewTab" type="button" aria-selected="false">Library</button>
+        </nav>
         <section id="readingListSection" hidden="true">
             <button id="closeReadingList">__MSG_button_Close_ReadingList__</button>
             <table id="readingListTable">
@@ -265,7 +269,7 @@
                         <td><p>__MSG_label_Lib_Compact_View__</p></td>
                     </tr>
                     <tr>
-                        <td><input id="LibShowShelfViewCheckbox" type="checkbox" name="LibShowShelfViewCheckbox"></td>
+                        <td><input id="LibShowShelfViewCheckbox" type="checkbox" name="LibShowShelfViewCheckbox" checked></td>
                         <td><p>Show responsive library shelf</p></td>
                     </tr>
                     <tr>

@@ -18,3 +18,15 @@ test("selected Royal Road URL shape is retained for parser lookup", () => {
     assert.equal(url.hostname, "royalroad.com");
     assert.equal(url.pathname, "/fiction/39408/beware-of-chicken");
 });
+
+test("popup uses in-page acquisition and library tabs", () => {
+    let popup = fs.readFileSync(path.join(__dirname, "..", "plugin", "popup.html"), "utf8");
+    let main = fs.readFileSync(path.join(__dirname, "..", "plugin", "js", "main.js"), "utf8");
+    let manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "plugin", "manifest.json"), "utf8"));
+    assert.match(popup, /id="mainViewTabs"/);
+    assert.match(popup, /id="acquisitionViewTab"/);
+    assert.match(popup, /id="libraryViewTab"/);
+    assert.match(main, /switchMainView/);
+    assert.doesNotMatch(main, /chrome\.tabs\.create\(\{\s*url:\s*chrome\.runtime\.getURL\("library\.html"\)/);
+    assert.equal(manifest.version, "1.0.14.78");
+});

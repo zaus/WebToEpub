@@ -319,6 +319,45 @@ class Library { // eslint-disable-line no-unused-vars
         return sorted;
     }
 
+    static LibGetSelectedLibraryIds() {
+        return [...document.querySelectorAll(".LibShelfSelect:checked, .LibEntrySelect:checked")]
+            .map(input => String(input.dataset.libepubid))
+            .filter((id, index, ids) => ids.indexOf(id) === index);
+    }
+
+    static LibSelectAllLibraryEntries(checked) {
+        for (let input of document.querySelectorAll(".LibShelfSelect, .LibEntrySelect")) {
+            input.checked = checked;
+        }
+    }
+
+    static async LibUpdateSelectedLibraryEntries() {
+        let ids = Library.LibGetSelectedLibraryIds();
+        for (let id of ids) {
+            await Library.LibUpdateNewChapter({dataset: {libepubid: id}});
+        }
+    }
+
+    static async LibDownloadSelectedLibraryEntries() {
+        let ids = Library.LibGetSelectedLibraryIds();
+        for (let id of ids) {
+            await Library.LibDownload({dataset: {libepubid: id}});
+        }
+    }
+
+    static async LibDeleteSelectedLibraryEntries() {
+        let ids = Library.LibGetSelectedLibraryIds();
+        if (ids.length === 0) {
+            return;
+        }
+        if (!window.confirm("Delete " + ids.length + " selected library entries?")) {
+            return;
+        }
+        for (let id of ids) {
+            await Library.LibDeleteEpub({dataset: {libepubid: id}});
+        }
+    }
+
     static async LibMoveShelfBook(fromId, toId) {
         if (fromId === toId) {
             return;
@@ -427,6 +466,12 @@ class Library { // eslint-disable-line no-unused-vars
         LibRenderString += "<div style='display:flex; justify-content: center;'>";
         LibRenderString += "<button id='libupdateall'>"+document.getElementById("LibTemplateUpdateAll").innerHTML+"</button>";
         LibRenderString += "</div>";
+        LibRenderString += "<div class='LibBatchToolbar'>";
+        LibRenderString += "<label><input id='LibSelectAllEntries' type='checkbox'> Select all</label>";
+        LibRenderString += "<button id='LibUpdateSelectedEntries' type='button'>Update selected</button>";
+        LibRenderString += "<button id='LibDownloadSelectedEntries' type='button'>Download selected</button>";
+        LibRenderString += "<button id='LibDeleteSelectedEntries' type='button'>Delete selected</button>";
+        LibRenderString += "</div>";
         if (ShowShelfView) {
             let shelfItems = [];
             for (let id of CurrentLibKeys) {
@@ -440,6 +485,7 @@ class Library { // eslint-disable-line no-unused-vars
             LibRenderString += "<div class='LibShelf' id='LibShelf'>";
             for (let item of shelfItems) {
                 LibRenderString += "<article class='LibShelfCard' data-libepubid='"+item.id+"' draggable='"+(ShelfSort === "manual")+"'>";
+                LibRenderString += "<label class='LibShelfSelection'><input class='LibShelfSelect' data-libepubid='"+item.id+"' type='checkbox' aria-label='Select "+item.title.replace(/'/g, "&#39")+"'> Select</label>";
                 LibRenderString += "<button class='LibShelfCoverButton' data-libepubid='"+item.id+"' id='LibShelfMetadata"+item.id+"' aria-label='Edit metadata for "+item.title.replace(/'/g, "&#39;")+"'>";
                 LibRenderString += "<img id='LibShelfCover"+item.id+"' alt='"+item.title.replace(/'/g, "&#39;")+" cover'>";
                 LibRenderString += "</button>";
@@ -532,6 +578,7 @@ class Library { // eslint-disable-line no-unused-vars
                 LibRenderString += "<table>";
                 LibRenderString += "<tbody>";
                 LibRenderString += "<tr>";
+                LibRenderString += "<td><input class='LibEntrySelect' data-libepubid='"+CurrentLibKeys[i]+"' type='checkbox' aria-label='Select library entry'></td>";
                 LibRenderString += "<td style='height: 115.5px; width: 106.5px;' rowspan='4'>   <img class='LibCover' id='LibCover"+CurrentLibKeys[i]+"'></td>";
                 LibRenderString += "<td colspan='2'>";
                 if (ShowAdvancedOptions) {
@@ -631,6 +678,18 @@ class Library { // eslint-disable-line no-unused-vars
                 document.getElementById("LibFilename"+CurrentLibKeys[i]).value = await Library.LibGetFromStorage("LibFilename"+CurrentLibKeys[i]);
             }
         }
+        document.getElementById("LibSelectAllEntries")?.addEventListener("change", function() {
+            Library.LibSelectAllLibraryEntries(this.checked);
+        });
+        document.getElementById("LibUpdateSelectedEntries")?.addEventListener("click", function() {
+            Library.LibUpdateSelectedLibraryEntries().catch(err => ErrorLog.showErrorMessage(err));
+        });
+        document.getElementById("LibDownloadSelectedEntries")?.addEventListener("click", function() {
+            Library.LibDownloadSelectedLibraryEntries().catch(err => ErrorLog.showErrorMessage(err));
+        });
+        document.getElementById("LibDeleteSelectedEntries")?.addEventListener("click", function() {
+            Library.LibDeleteSelectedLibraryEntries().catch(err => ErrorLog.showErrorMessage(err));
+        });
     }
 
     static LibMouseoverButtonUpload(objbtn) {

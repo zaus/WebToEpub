@@ -142,6 +142,30 @@ button:disabled {
     margin: auto;
     border-radius: 5px;
     position:relative;
+    min-width: 356px;
+    max-width: 1200px;
+}
+
+.container.libraryView {
+    width: min(960px, calc(100vw - 24px));
+    min-width: 356px;
+}
+
+.mainViewTabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin: 8px 0 12px;
+}
+
+.mainViewTabs button {
+    min-height: 38px;
+    max-height: none;
+}
+
+.mainViewTabs button[aria-selected="true"] {
+    border-color: var(--wepub-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--wepub-accent) 35%, transparent);
 }
 
 
@@ -292,6 +316,24 @@ button {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 12px;
     padding: 12px 0;
+}
+
+.LibBatchToolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.LibShelfSelection {
+    display: block;
+    padding: 8px;
+    border-bottom: 1px solid var(--wepub-border);
+}
+
+.LibEntrySelect {
+    margin-right: 6px;
 }
 
 .LibShelfCard {

@@ -1723,6 +1723,17 @@ test("chapter preview rejects invalid chapter lists", async () => {
     assert.throws(() => vm.runInContext('Library.LibPreviewChapterDelta(["one"], [7])', context), /URL lists/);
 });
 
+test("library selection helpers collect unique selected IDs", async () => {
+    let {context} = createLibraryContext();
+    context.document = {
+        querySelectorAll: selector => selector === ".LibShelfSelect:checked, .LibEntrySelect:checked"
+            ? [{dataset: {libepubid: "7"}}, {dataset: {libepubid: "8"}}, {dataset: {libepubid: "7"}}]
+            : []
+    };
+    let ids = await vm.runInContext("Library.LibGetSelectedLibraryIds()", context);
+    assert.deepEqual(Array.from(ids), ["7", "8"]);
+});
+
 test("shelf sorting orders title and new-chapter views without changing manual order", async () => {
     let {context} = createLibraryContext();
     let items = [
