@@ -1,3 +1,41 @@
+﻿:root {
+    --wepub-panel: #ffffff;
+    --wepub-panel-alt: #f2f4f7;
+    --wepub-text: #17191d;
+    --wepub-muted: #4f5968;
+    --wepub-border: #bcc4cf;
+    --wepub-accent: #315ba8;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --wepub-panel: #202329;
+        --wepub-panel-alt: #30353b;
+        --wepub-text: #f4f6f8;
+        --wepub-muted: #bdc6d2;
+        --wepub-border: #505762;
+        --wepub-accent: #88aaff;
+    }
+
+    :root[data-wepub-theme="light"] {
+        --wepub-panel: #ffffff;
+        --wepub-panel-alt: #f2f4f7;
+        --wepub-text: #17191d;
+        --wepub-muted: #4f5968;
+        --wepub-border: #bcc4cf;
+        --wepub-accent: #315ba8;
+    }
+
+    :root[data-wepub-theme="dark"] {
+        --wepub-panel: #202329;
+        --wepub-panel-alt: #30353b;
+        --wepub-text: #f4f6f8;
+        --wepub-muted: #bdc6d2;
+        --wepub-border: #505762;
+        --wepub-accent: #88aaff;
+    }
+}
+
 .expandedButton {
     padding: 5px 10px;
 }
@@ -304,8 +342,10 @@ button {
 #LibMetadataDialog {
     max-width: min(640px, calc(100vw - 32px));
     max-height: calc(100vh - 32px);
-    border: 1px #CCC solid;
+    border: 1px solid var(--wepub-border);
     border-radius: 8px;
+    background: var(--wepub-panel);
+    color: var(--wepub-text);
 }
 
 .LibMetadataDialogHeader {
@@ -313,6 +353,31 @@ button {
     justify-content: space-between;
     align-items: center;
     gap: 16px;
+}
+
+dialog,
+#LibMetadataDialogContent,
+#LibRenderMetadata {
+    background: var(--wepub-panel);
+    color: var(--wepub-text);
+}
+
+dialog input,
+dialog textarea,
+dialog select,
+#LibMetadataDialogContent input,
+#LibMetadataDialogContent textarea,
+#LibMetadataDialogContent select {
+    border: 1px solid var(--wepub-border);
+    background: var(--wepub-panel-alt);
+    color: var(--wepub-text);
+}
+
+dialog button,
+#LibMetadataDialogContent button {
+    border: 1px solid var(--wepub-border);
+    background: var(--wepub-panel-alt);
+    color: var(--wepub-text);
 }
 
 .HiddenButtonSection {

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>WebToEpub Library</title>
+	<link href="css/autoDark.css" rel="stylesheet" id="autoDark">
+	<link href="css/alwaysDark.css" rel="stylesheet" id="alwaysDark" disabled>
+	<link href="css/library.css" rel="stylesheet">
+</head>
+<body>
+	<header class="libraryHeader">
+		<div>
+			<p class="libraryEyebrow">WebToEpub</p>
+			<h1>Library</h1>
+		</div>
+		<label>
+			<span>Sort</span>
+			<select id="librarySort">
+				<option value="manual">Manual order</option>
+				<option value="title">Title</option>
+				<option value="new">New chapters</option>
+			</select>
+		</label>
+	</header>
+
+	<main>
+		<p id="libraryStatus" role="status" aria-live="polite">Loading library...</p>
+		<div id="libraryShelf" class="libraryShelf" aria-label="Library books"></div>
+	</main>
+
+	<dialog id="libraryMetadataDialog" aria-labelledby="libraryMetadataTitle">
+		<div class="dialogHeader">
+			<h2 id="libraryMetadataTitle">Book metadata</h2>
+			<button id="libraryMetadataClose" type="button">Close</button>
+		</div>
+		<dl id="libraryMetadataContent"></dl>
+	</dialog>
+
+	<script src="js/BrowserEpubStorage.js"></script>
+	<script src="js/ExternalEpubStorage.js"></script>
+	<script src="js/LibraryPage.js"></script>
+</body>
+</html>

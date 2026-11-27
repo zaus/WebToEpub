@@ -282,6 +282,9 @@ class UserPreferences { // eslint-disable-line no-unused-vars
 
     static SetTheme() {
         let theme = document.querySelector("#themeColorTag").value;
+        document.documentElement.dataset.wepubTheme = theme === "LightMode"
+            ? "light"
+            : theme === "DarkMode" ? "dark" : "";
         let autodark = document.querySelector("link#autoDark");
         let alwaysDark = document.querySelector("link#alwaysDark");
         autodark.disabled = true;

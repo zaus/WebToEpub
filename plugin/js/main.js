@@ -342,13 +342,9 @@ var main = (function() {
     }
 
     function onLibraryClick() {
-        let section =  getLibrarySection();
-        section.hidden = !section.hidden;
-        if (!section.hidden) {
-            Library.LibRenderSavedEpubs();
-        }
-        section =  getAdvancedOptionsSection();
-        section.hidden = true;
+        chrome.tabs.create({
+            url: chrome.runtime.getURL("library.html")
+        }).catch(error => ErrorLog.showErrorMessage(error));
     }
 
     function onStylesheetToDefaultClick() {
