@@ -264,6 +264,20 @@
                         <td><input id="LibShowCompactViewCheckbox" type="checkbox" name="LibShowCompactViewCheckbox" checked="false"></td>
                         <td><p>__MSG_label_Lib_Compact_View__</p></td>
                     </tr>
+                    <tr>
+                        <td><input id="LibShowShelfViewCheckbox" type="checkbox" name="LibShowShelfViewCheckbox"></td>
+                        <td><p>Show responsive library shelf</p></td>
+                    </tr>
+                    <tr>
+                        <td><label for="LibShelfSort">Shelf sorting</label></td>
+                        <td>
+                            <select id="LibShelfSort">
+                                <option value="manual">Manual order</option>
+                                <option value="title">Title</option>
+                                <option value="new">New chapters</option>
+                            </select>
+                        </td>
+                    </tr>
                     <tr id="LibDownloadEpubAfterUpdateRow" hidden="true">
                         <td><input id="LibDownloadEpubAfterUpdateCheckbox" type="checkbox" name="LibDownloadEpubAfterUpdateCheckbox" checked="true"></td>
                         <td><p>__MSG_label_Lib_Download_Epub_After_Update__</p></td>
@@ -271,6 +285,13 @@
                 </table>
                 <div id="LibRenderResult">
                 </div>
+                <dialog id="LibMetadataDialog" aria-labelledby="LibMetadataDialogTitle">
+                    <div class="LibMetadataDialogHeader">
+                        <h2 id="LibMetadataDialogTitle">Book metadata</h2>
+                        <button id="LibMetadataDialogClose" type="button">Close</button>
+                    </div>
+                    <div id="LibMetadataDialogContent"></div>
+                </dialog>
             </section>
 
             <section id="advancedOptionsSection" hidden="true">

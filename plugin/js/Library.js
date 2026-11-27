@@ -309,6 +309,37 @@ class Library { // eslint-disable-line no-unused-vars
         Library.LibChangeOrder(objbtn.dataset.libepubid, 1);
     }
 
+    static LibSortShelfItems(items, sort) {
+        let sorted = [...items];
+        if (sort === "title") {
+            sorted.sort((a, b) => a.title.localeCompare(b.title));
+        } else if (sort === "new") {
+            sorted.sort((a, b) => b.count - a.count);
+        }
+        return sorted;
+    }
+
+    static async LibMoveShelfBook(fromId, toId) {
+        if (fromId === toId) {
+            return;
+        }
+        let ids = await Library.LibGetFromStorage("LibArray");
+        if (!Array.isArray(ids)) {
+            ids = await Library.LibGetStorageIDs();
+        }
+        ids = ids.map(id => String(id));
+        fromId = String(fromId);
+        toId = String(toId);
+        let from = ids.indexOf(fromId);
+        let to = ids.indexOf(toId);
+        if (from < 0 || to < 0) {
+            return;
+        }
+        ids.splice(to, 0, ids.splice(from, 1)[0]);
+        await Library.LibSetInStorage({LibArray: ids});
+        await Library.LibRenderSavedEpubs();
+    }
+
     static async LibCreateStorageIDs(AppendID) {
         let LibArray = [];
         if (AppendID == undefined) {
@@ -366,6 +397,8 @@ class Library { // eslint-disable-line no-unused-vars
         let lockKeys = CurrentLibKeys.map(id => "LibLocked" + id);
         let lockedItems = lockKeys.length ? await Library.LibReadStorageForWrite(lockKeys) : {};
         let LibTemplateOpenURLButton = "";
+        let ShowShelfView = document.getElementById("LibShowShelfViewCheckbox").checked;
+        let ShelfSort = document.getElementById("LibShelfSort").value;
 
         LibRenderString += "<div class='LibDivRenderWraper'>";
         document.getElementById("LibShowCompactViewRow").hidden = !ShowAdvancedOptions;
@@ -394,7 +427,70 @@ class Library { // eslint-disable-line no-unused-vars
         LibRenderString += "<div style='display:flex; justify-content: center;'>";
         LibRenderString += "<button id='libupdateall'>"+document.getElementById("LibTemplateUpdateAll").innerHTML+"</button>";
         LibRenderString += "</div>";
-        if ( ShowCompactView && !ShowAdvancedOptions) {
+        if (ShowShelfView) {
+            let shelfItems = [];
+            for (let id of CurrentLibKeys) {
+                let title = await Library.LibGetFromStorage("LibFilename" + id);
+                let cover = await Library.LibGetFromStorage("LibCover" + id);
+                let count = parseInt(await Library.LibGetFromStorage("LibNewChapterCount" + id) || "0");
+                shelfItems.push({id, title: title || "Book " + id, cover, count,
+                    locked: lockedItems["LibLocked" + id] === true});
+            }
+            shelfItems = Library.LibSortShelfItems(shelfItems, ShelfSort);
+            LibRenderString += "<div class='LibShelf' id='LibShelf'>";
+            for (let item of shelfItems) {
+                LibRenderString += "<article class='LibShelfCard' data-libepubid='"+item.id+"' draggable='"+(ShelfSort === "manual")+"'>";
+                LibRenderString += "<button class='LibShelfCoverButton' data-libepubid='"+item.id+"' id='LibShelfMetadata"+item.id+"' aria-label='Edit metadata for "+item.title.replace(/'/g, "&#39;")+"'>";
+                LibRenderString += "<img id='LibShelfCover"+item.id+"' alt='"+item.title.replace(/'/g, "&#39;")+" cover'>";
+                LibRenderString += "</button>";
+                LibRenderString += "<h3 class='LibShelfTitle' title='"+item.title.replace(/'/g, "&#39;")+"'>"+item.title+"</h3>";
+                LibRenderString += "<span id='LibShelfCount"+item.id+"'>"+(item.count > 0 ? item.count + " new" : "")+"</span>";
+                LibRenderString += "<div class='LibShelfActions'>";
+                LibRenderString += "<button data-libepubid='"+item.id+"' id='LibShelfUpdate"+item.id+"'>Update</button>";
+                LibRenderString += "<button data-libepubid='"+item.id+"' id='LibShelfDownload"+item.id+"'>Download</button>";
+                LibRenderString += "<button data-libepubid='"+item.id+"' id='LibShelfLock"+item.id+"'>"+(item.locked ? "Unlock" : "Lock")+"</button>";
+                LibRenderString += "<button data-libepubid='"+item.id+"' id='LibShelfDelete"+item.id+"'>Delete</button>";
+                LibRenderString += "</div>";
+                LibRenderString += "<div id='LibRenderMetadata"+item.id+"' hidden></div>";
+                LibRenderString += "</article>";
+            }
+            LibRenderString += "</div>";
+            LibRenderString += "</div>";
+            Library.AppendHtmlInDiv(LibRenderString, LibRenderResult, "LibDivRenderWraper");
+            document.getElementById("libupdateall").addEventListener("click", function() {Library.Libupdateall();});
+            for (let item of shelfItems) {
+                document.getElementById("LibShelfCover"+item.id).src = item.cover || "";
+                document.getElementById("LibShelfMetadata"+item.id).addEventListener("click", function() {Library.LibOpenShelfMetadata(this).catch(err => ErrorLog.showErrorMessage(err));});
+                document.getElementById("LibShelfUpdate"+item.id).addEventListener("click", function() {Library.LibUpdateNewChapter(this).catch(err => ErrorLog.showErrorMessage(err));});
+                document.getElementById("LibShelfDownload"+item.id).addEventListener("click", function() {Library.LibDownload(this).catch(err => ErrorLog.showErrorMessage(err));});
+                document.getElementById("LibShelfLock"+item.id).addEventListener("click", function() {Library.LibToggleLock(this).then(() => Library.LibRenderSavedEpubs()).catch(err => ErrorLog.showErrorMessage(err));});
+                document.getElementById("LibShelfDelete"+item.id).addEventListener("click", function() {
+                    if (window.confirm("Delete " + item.title + " from the library?")) {
+                        Library.LibDeleteEpub(this).catch(err => ErrorLog.showErrorMessage(err));
+                    }
+                });
+            }
+            let draggedId = null;
+            for (let card of document.querySelectorAll(".LibShelfCard")) {
+                card.addEventListener("dragstart", event => {
+                    draggedId = card.dataset.libepubid;
+                    card.classList.add("dragging");
+                    event.dataTransfer.effectAllowed = "move";
+                });
+                card.addEventListener("dragend", () => card.classList.remove("dragging"));
+                card.addEventListener("dragover", event => {
+                    if (ShelfSort === "manual") {
+                        event.preventDefault();
+                    }
+                });
+                card.addEventListener("drop", event => {
+                    event.preventDefault();
+                    if (ShelfSort === "manual" && draggedId) {
+                        Library.LibMoveShelfBook(draggedId, card.dataset.libepubid).catch(err => ErrorLog.showErrorMessage(err));
+                    }
+                });
+            }
+        } else if ( ShowCompactView && !ShowAdvancedOptions) {
             LibRenderString += "<table>";
             LibRenderString += "<tbody>";
             let column = 5;
@@ -592,6 +688,15 @@ class Library { // eslint-disable-line no-unused-vars
         });
     }
     
+    static async LibOpenShelfMetadata(objbtn) {
+        let dialog = document.getElementById("LibMetadataDialog");
+        let content = document.getElementById("LibMetadataDialogContent");
+        await Library.LibEditMetadata(objbtn);
+        let source = document.getElementById("LibRenderMetadata" + objbtn.dataset.libepubid);
+        content.replaceChildren(...Array.from(source.childNodes));
+        dialog.showModal();
+    }
+
     static async LibEditMetadata(objbtn) {
         let LibTemplateMetadataSave = document.getElementById("LibTemplateMetadataSave").innerHTML;
         let LibTemplateMetadataTitle = document.getElementById("LibTemplateMetadataTitle").innerHTML;
@@ -1522,3 +1627,19 @@ chrome.storage.local.get("ExternalEpubStorage", items => {
 Library.updateQueue = Promise.resolve();
 Library.acquisitionQueues = new Map();
 Library.bookQueues = new Map();
+
+if (typeof document !== "undefined") {
+    let metadataDialog = document.getElementById("LibMetadataDialog");
+    let metadataDialogClose = document.getElementById("LibMetadataDialogClose");
+    if (metadataDialog && metadataDialogClose) {
+        metadataDialogClose.addEventListener("click", () => metadataDialog.close());
+    }
+    let shelfViewCheckbox = document.getElementById("LibShowShelfViewCheckbox");
+    let shelfSortSelect = document.getElementById("LibShelfSort");
+    if (shelfViewCheckbox) {
+        shelfViewCheckbox.addEventListener("change", () => Library.LibRenderSavedEpubs());
+    }
+    if (shelfSortSelect) {
+        shelfSortSelect.addEventListener("change", () => Library.LibRenderSavedEpubs());
+    }
+}

@@ -249,6 +249,72 @@ button {
     margin-right: auto;
 }
 
+.LibShelf {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+    padding: 12px 0;
+}
+
+.LibShelfCard {
+    min-width: 0;
+    border: 1px #CCC solid;
+    border-radius: 8px;
+    padding: 8px;
+    background: Canvas;
+}
+
+.LibShelfCard.dragging {
+    opacity: 0.5;
+}
+
+.LibShelfCoverButton {
+    width: 100%;
+    max-height: 230px;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+}
+
+.LibShelfCoverButton img {
+    width: 100%;
+    max-height: 230px;
+    object-fit: contain;
+}
+
+.LibShelfTitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin: 8px 0 4px;
+}
+
+.LibShelfActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.LibShelfActions button {
+    max-height: none;
+    min-height: 32px;
+}
+
+#LibMetadataDialog {
+    max-width: min(640px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    border: 1px #CCC solid;
+    border-radius: 8px;
+}
+
+.LibMetadataDialogHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+
 .HiddenButtonSection {
     position: relative;
     display: flex;

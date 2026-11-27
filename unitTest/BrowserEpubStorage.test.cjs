@@ -1722,3 +1722,29 @@ test("chapter preview rejects invalid chapter lists", async () => {
     let {context} = createLibraryContext();
     assert.throws(() => vm.runInContext('Library.LibPreviewChapterDelta(["one"], [7])', context), /URL lists/);
 });
+
+test("shelf sorting orders title and new-chapter views without changing manual order", async () => {
+    let {context} = createLibraryContext();
+    let items = [
+        {title: "Zulu", count: 1},
+        {title: "Alpha", count: 3},
+        {title: "Beta", count: 2}
+    ];
+    context.items = items;
+    let manual = await vm.runInContext('Library.LibSortShelfItems(items, "manual")', context);
+    let titles = await vm.runInContext('Library.LibSortShelfItems(items, "title")', context);
+    let newest = await vm.runInContext('Library.LibSortShelfItems(items, "new")', context);
+    context.items = items;
+    assert.deepEqual(Array.from(manual), items);
+    assert.deepEqual(Array.from(titles).map(item => item.title), ["Alpha", "Beta", "Zulu"]);
+    assert.deepEqual(Array.from(newest).map(item => item.title), ["Alpha", "Beta", "Zulu"]);
+});
+
+test("shelf drag reorder moves IDs and persists the new order", async () => {
+    let values = {LibArray: ["7", "8", "9"]};
+    let {context} = createLibraryContext(values);
+    context.chrome.storage.local.set = (items, callback) => { Object.assign(values, items); callback(); };
+    vm.runInContext("Library.LibRenderSavedEpubs = async () => {}", context);
+    await vm.runInContext('Library.LibMoveShelfBook("7", "9")', context);
+    assert.deepEqual(values.LibArray, ["8", "9", "7"]);
+});
