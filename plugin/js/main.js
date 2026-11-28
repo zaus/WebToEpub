@@ -354,6 +354,20 @@ var main = (function() {
         if (acquisition != null) {
             acquisition.hidden = showLibrary;
         }
+        for (let id of ["defaultParserSection", "testSection", "imageSection", "outputSection"]) {
+            let section = document.getElementById(id);
+            if (section != null) {
+                section.hidden = showLibrary;
+            }
+        }
+        let hiddenButtons = document.querySelector(".HiddenButtonSection");
+        if (hiddenButtons != null) {
+            hiddenButtons.hidden = showLibrary;
+        }
+        let advanced = getAdvancedOptionsSection();
+        if (advanced != null) {
+            advanced.hidden = showLibrary ? true : advanced.hidden;
+        }
         if (library != null) {
             library.hidden = !showLibrary;
             if (showLibrary) {

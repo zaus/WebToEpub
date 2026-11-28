@@ -28,5 +28,10 @@ test("popup uses in-page acquisition and library tabs", () => {
     assert.match(popup, /id="libraryViewTab"/);
     assert.match(main, /switchMainView/);
     assert.doesNotMatch(main, /chrome\.tabs\.create\(\{\s*url:\s*chrome\.runtime\.getURL\("library\.html"\)/);
-    assert.equal(manifest.version, "1.0.14.78");
+    assert.equal(manifest.version, "1.0.14.79");
+});
+
+test("library markup is sibling to acquisition markup", () => {
+    let popup = fs.readFileSync(path.join(__dirname, "..", "plugin", "popup.html"), "utf8");
+    assert.match(popup, /<\/div>\s*<\/section>\s*<div class="HiddenButtonSection">[\s\S]*<section id="hiddenBibSection"/);
 });
